@@ -1,0 +1,26 @@
+# Operating System
+.DS_Store
+*.swp
+*~
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.iml
+*.suq
+
+# Go Backend
+backend/bin/
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/*.test
+backend/*.out
+backend/vendor/
+
+# Environment Variables
+.env
+.env.*
+*.local

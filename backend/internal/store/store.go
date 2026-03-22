@@ -1,6 +1,3 @@
-// Package store provides the Firestore data access layer.
-// For MVP development without Firestore credentials, it uses an in-memory store
-// seeded from JSON files.
 package store
 
 import (
@@ -14,8 +11,27 @@ import (
 	"yanplatform/backend/internal/models"
 )
 
-// Store provides data access for all collections.
-type Store struct {
+// Store defines the data access interface for YanPlatform.
+type Store interface {
+	LoadSupplierSeed(path string) error
+	GetSuppliers(resource string) ([]models.Supplier, error)
+	GetAlternativeSuppliers(resource string) ([]models.Supplier, error)
+	SaveRiskScore(score models.RiskScore) error
+	GetRiskScores(resource string) ([]models.RiskScore, error)
+	GetHighRiskZones(threshold float64) ([]models.RiskScore, error)
+	SaveEvent(event models.GDELTEvent) error
+	GetRecentEvents(limit int) ([]models.GDELTEvent, error)
+	SaveTradeFlow(flow models.TradeFlow) error
+	GetTradeFlows(resource string) ([]models.TradeFlow, error)
+	SaveRerouteResult(result models.RerouteResult) error
+	GetLatestRerouteResult(resource string) (*models.RerouteResult, error)
+	SaveChokepoint(cp models.Chokepoint) error
+	GetChokepoints(resource string) ([]models.Chokepoint, error)
+	SeedInitialData() error
+}
+
+// MemoryStore provides an in-memory implementation of Store.
+type MemoryStore struct {
 	mu             sync.RWMutex
 	suppliers      []models.Supplier
 	riskScores     []models.RiskScore
@@ -25,13 +41,13 @@ type Store struct {
 	chokepoints    []models.Chokepoint
 }
 
-// New creates a new in-memory store.
-func New() *Store {
-	return &Store{}
+// NewMemoryStore creates a new in-memory store.
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{}
 }
 
 // LoadSupplierSeed loads supplier data from a JSON seed file.
-func (s *Store) LoadSupplierSeed(path string) error {
+func (s *MemoryStore) LoadSupplierSeed(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("reading supplier seed: %w", err)
@@ -52,14 +68,14 @@ func (s *Store) LoadSupplierSeed(path string) error {
 // --- Suppliers ---
 
 // GetSuppliers returns all suppliers, optionally filtered by resource.
-func (s *Store) GetSuppliers(resource string) []models.Supplier {
+func (s *MemoryStore) GetSuppliers(resource string) ([]models.Supplier, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if resource == "" {
 		result := make([]models.Supplier, len(s.suppliers))
 		copy(result, s.suppliers)
-		return result
+		return result, nil
 	}
 
 	var filtered []models.Supplier
@@ -68,11 +84,11 @@ func (s *Store) GetSuppliers(resource string) []models.Supplier {
 			filtered = append(filtered, sup)
 		}
 	}
-	return filtered
+	return filtered, nil
 }
 
 // GetAlternativeSuppliers returns suppliers that are alternative reroute candidates.
-func (s *Store) GetAlternativeSuppliers(resource string) []models.Supplier {
+func (s *MemoryStore) GetAlternativeSuppliers(resource string) ([]models.Supplier, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -82,34 +98,35 @@ func (s *Store) GetAlternativeSuppliers(resource string) []models.Supplier {
 			alternatives = append(alternatives, sup)
 		}
 	}
-	return alternatives
+	return alternatives, nil
 }
 
 // --- Risk Scores ---
 
 // SaveRiskScore upserts a risk score.
-func (s *Store) SaveRiskScore(score models.RiskScore) {
+func (s *MemoryStore) SaveRiskScore(score models.RiskScore) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for i, existing := range s.riskScores {
 		if existing.ID == score.ID {
 			s.riskScores[i] = score
-			return
+			return nil
 		}
 	}
 	s.riskScores = append(s.riskScores, score)
+	return nil
 }
 
 // GetRiskScores returns all risk scores, optionally filtered by resource.
-func (s *Store) GetRiskScores(resource string) []models.RiskScore {
+func (s *MemoryStore) GetRiskScores(resource string) ([]models.RiskScore, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if resource == "" {
 		result := make([]models.RiskScore, len(s.riskScores))
 		copy(result, s.riskScores)
-		return result
+		return result, nil
 	}
 
 	var filtered []models.RiskScore
@@ -118,11 +135,11 @@ func (s *Store) GetRiskScores(resource string) []models.RiskScore {
 			filtered = append(filtered, rs)
 		}
 	}
-	return filtered
+	return filtered, nil
 }
 
 // GetHighRiskZones returns risk scores above the threshold.
-func (s *Store) GetHighRiskZones(threshold float64) []models.RiskScore {
+func (s *MemoryStore) GetHighRiskZones(threshold float64) ([]models.RiskScore, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -132,27 +149,28 @@ func (s *Store) GetHighRiskZones(threshold float64) []models.RiskScore {
 			zones = append(zones, rs)
 		}
 	}
-	return zones
+	return zones, nil
 }
 
 // --- Events ---
 
 // SaveEvent adds a GDELT event.
-func (s *Store) SaveEvent(event models.GDELTEvent) {
+func (s *MemoryStore) SaveEvent(event models.GDELTEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Avoid duplicates
 	for _, existing := range s.events {
 		if existing.ID == event.ID {
-			return
+			return nil
 		}
 	}
 	s.events = append(s.events, event)
+	return nil
 }
 
 // GetRecentEvents returns the most recent N events.
-func (s *Store) GetRecentEvents(limit int) []models.GDELTEvent {
+func (s *MemoryStore) GetRecentEvents(limit int) ([]models.GDELTEvent, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -163,35 +181,36 @@ func (s *Store) GetRecentEvents(limit int) []models.GDELTEvent {
 	})
 
 	if limit > 0 && limit < len(sorted) {
-		return sorted[:limit]
+		return sorted[:limit], nil
 	}
-	return sorted
+	return sorted, nil
 }
 
 // --- Trade Flows ---
 
 // SaveTradeFlow adds a trade flow record.
-func (s *Store) SaveTradeFlow(flow models.TradeFlow) {
+func (s *MemoryStore) SaveTradeFlow(flow models.TradeFlow) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, existing := range s.tradeFlows {
 		if existing.ID == flow.ID {
-			return
+			return nil
 		}
 	}
 	s.tradeFlows = append(s.tradeFlows, flow)
+	return nil
 }
 
 // GetTradeFlows returns trade flows filtered by resource.
-func (s *Store) GetTradeFlows(resource string) []models.TradeFlow {
+func (s *MemoryStore) GetTradeFlows(resource string) ([]models.TradeFlow, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if resource == "" {
 		result := make([]models.TradeFlow, len(s.tradeFlows))
 		copy(result, s.tradeFlows)
-		return result
+		return result, nil
 	}
 
 	var filtered []models.TradeFlow
@@ -200,21 +219,22 @@ func (s *Store) GetTradeFlows(resource string) []models.TradeFlow {
 			filtered = append(filtered, tf)
 		}
 	}
-	return filtered
+	return filtered, nil
 }
 
 // --- Reroute Results ---
 
 // SaveRerouteResult stores a reroute simulation result.
-func (s *Store) SaveRerouteResult(result models.RerouteResult) {
+func (s *MemoryStore) SaveRerouteResult(result models.RerouteResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.rerouteResults = append(s.rerouteResults, result)
+	return nil
 }
 
 // GetLatestRerouteResult returns the most recent reroute for a resource.
-func (s *Store) GetLatestRerouteResult(resource string) *models.RerouteResult {
+func (s *MemoryStore) GetLatestRerouteResult(resource string) (*models.RerouteResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -227,34 +247,35 @@ func (s *Store) GetLatestRerouteResult(resource string) *models.RerouteResult {
 			}
 		}
 	}
-	return latest
+	return latest, nil
 }
 
 // --- Chokepoints ---
 
 // SaveChokepoint upserts a chokepoint.
-func (s *Store) SaveChokepoint(cp models.Chokepoint) {
+func (s *MemoryStore) SaveChokepoint(cp models.Chokepoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for i, existing := range s.chokepoints {
 		if existing.ID == cp.ID {
 			s.chokepoints[i] = cp
-			return
+			return nil
 		}
 	}
 	s.chokepoints = append(s.chokepoints, cp)
+	return nil
 }
 
 // GetChokepoints returns all chokepoints, optionally filtered by resource.
-func (s *Store) GetChokepoints(resource string) []models.Chokepoint {
+func (s *MemoryStore) GetChokepoints(resource string) ([]models.Chokepoint, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	if resource == "" {
 		result := make([]models.Chokepoint, len(s.chokepoints))
 		copy(result, s.chokepoints)
-		return result
+		return result, nil
 	}
 
 	var filtered []models.Chokepoint
@@ -263,13 +284,13 @@ func (s *Store) GetChokepoints(resource string) []models.Chokepoint {
 			filtered = append(filtered, cp)
 		}
 	}
-	return filtered
+	return filtered, nil
 }
 
 // --- Seed Helpers ---
 
 // SeedInitialData populates the store with baseline chokepoints and computed risk scores.
-func (s *Store) SeedInitialData() {
+func (s *MemoryStore) SeedInitialData() error {
 	now := time.Now()
 
 	// Known chokepoints for gallium and germanium
@@ -414,4 +435,6 @@ func (s *Store) SeedInitialData() {
 	for _, evt := range events {
 		s.SaveEvent(evt)
 	}
+
+	return nil
 }

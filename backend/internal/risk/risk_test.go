@@ -7,8 +7,8 @@ import (
 	"yanplatform/backend/internal/store"
 )
 
-func setupTestEngine() (*Engine, *store.Store) {
-	s := store.New()
+func setupTestEngine() (*Engine, store.Store) {
+	s := store.NewMemoryStore()
 
 	seedPath := "../../data/suppliers_seed.json"
 	if err := s.LoadSupplierSeed(seedPath); err != nil {
@@ -132,7 +132,7 @@ func TestRecalculateAll(t *testing.T) {
 	engine.RecalculateAll()
 
 	// Should have risk scores for multiple regions
-	allScores := s.GetRiskScores("")
+	allScores, _ := s.GetRiskScores("")
 	if len(allScores) == 0 {
 		t.Error("Expected risk scores after recalculation")
 	}

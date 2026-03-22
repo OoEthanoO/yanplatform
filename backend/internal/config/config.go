@@ -28,6 +28,7 @@ type ServerConfig struct {
 type FirebaseConfig struct {
 	ProjectID          string `json:"project_id"`
 	CredentialsFile    string `json:"credentials_file"`
+	UseFirestore       bool   `json:"use_firestore"`
 }
 
 // BigQueryConfig holds BigQuery settings for GDELT.
@@ -88,6 +89,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("FIREBASE_PROJECT_ID"); v != "" {
 		cfg.Firebase.ProjectID = v
+	}
+	if v := os.Getenv("USE_FIRESTORE"); v == "true" || v == "1" {
+		cfg.Firebase.UseFirestore = true
 	}
 	if v := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); v != "" {
 		cfg.Firebase.CredentialsFile = v

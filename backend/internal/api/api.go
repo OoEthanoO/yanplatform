@@ -8,21 +8,21 @@ import (
 	"time"
 
 	"yanplatform/backend/internal/config"
+	"yanplatform/backend/internal/models"
 	"yanplatform/backend/internal/risk"
 	"yanplatform/backend/internal/store"
-	"yanplatform/backend/internal/models"
 )
 
 // Server is the HTTP API server.
 type Server struct {
-	store      *store.Store
+	store      store.Store
 	riskEngine *risk.Engine
 	config     *config.ServerConfig
 	mux        *http.ServeMux
 }
 
 // NewServer creates a new API server.
-func NewServer(s *store.Store, engine *risk.Engine, cfg *config.ServerConfig) *Server {
+func NewServer(s store.Store, engine *risk.Engine, cfg *config.ServerConfig) *Server {
 	srv := &Server{
 		store:      s,
 		riskEngine: engine,
@@ -61,10 +61,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRiskOverview(w http.ResponseWriter, r *http.Request) {
-	gaScores := s.store.GetRiskScores("gallium")
-	geScores := s.store.GetRiskScores("germanium")
-	events := s.store.GetRecentEvents(100)
-	highRisk := s.store.GetHighRiskZones(70)
+	gaScores, _ := s.store.GetRiskScores("gallium")
+	geScores, _ := s.store.GetRiskScores("germanium")
+	events, _ := s.store.GetRecentEvents(100)
+	highRisk, _ := s.store.GetHighRiskZones(70)
 
 	var gaRisk, geRisk models.RiskScore
 	for _, rs := range gaScores {
@@ -93,13 +93,13 @@ func (s *Server) handleRiskOverview(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChokepoints(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
-	chokepoints := s.store.GetChokepoints(resource)
+	chokepoints, _ := s.store.GetChokepoints(resource)
 	s.writeJSON(w, http.StatusOK, chokepoints)
 }
 
 func (s *Server) handleRiskTrends(w http.ResponseWriter, r *http.Request) {
 	// Return all risk scores for trend display
-	allScores := s.store.GetRiskScores("")
+	allScores, _ := s.store.GetRiskScores("")
 	s.writeJSON(w, http.StatusOK, allScores)
 }
 
@@ -122,19 +122,19 @@ func (s *Server) handleRerouteSimulate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRecentEvents(w http.ResponseWriter, r *http.Request) {
-	events := s.store.GetRecentEvents(20)
+	events, _ := s.store.GetRecentEvents(20)
 	s.writeJSON(w, http.StatusOK, events)
 }
 
 func (s *Server) handleTradeFlows(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
-	flows := s.store.GetTradeFlows(resource)
+	flows, _ := s.store.GetTradeFlows(resource)
 	s.writeJSON(w, http.StatusOK, flows)
 }
 
 func (s *Server) handleSuppliers(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
-	suppliers := s.store.GetSuppliers(resource)
+	suppliers, _ := s.store.GetSuppliers(resource)
 	s.writeJSON(w, http.StatusOK, suppliers)
 }
 

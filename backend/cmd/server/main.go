@@ -29,20 +29,27 @@ func main() {
 		cfg = config.DefaultConfig()
 	}
 
-	// Initialize store
-	dataStore := store.New()
-
-	// Load supplier seed data
-	seedPath := filepath.Join("data", "suppliers_seed.json")
-	if err := dataStore.LoadSupplierSeed(seedPath); err != nil {
-		log.Printf("Warning: Could not load supplier seed data: %v", err)
+	var dataStore store.Store
+	if cfg.Firebase.UseFirestore {
+		fsStore, err := store.NewFirestoreStore(cfg.Firebase.ProjectID)
+		if err != nil {
+			log.Fatalf("[Store] Failed to initialize Firestore: %v", err)
+		}
+		dataStore = fsStore
+		log.Println("[Store] Initialized Firestore backend")
 	} else {
-		log.Println("[Store] Loaded supplier seed data")
-	}
+		dataStore = store.NewMemoryStore()
+		
+		seedPath := filepath.Join("data", "suppliers_seed.json")
+		if err := dataStore.LoadSupplierSeed(seedPath); err != nil {
+			log.Printf("Warning: Could not load supplier seed data: %v", err)
+		} else {
+			log.Println("[Store] Loaded supplier seed data")
+		}
 
-	// Seed initial data (chokepoints, risk scores, sample events)
-	dataStore.SeedInitialData()
-	log.Println("[Store] Seeded initial chokepoints, risk scores, and events")
+		dataStore.SeedInitialData()
+		log.Println("[Store] Seeded initial chokepoints, risk scores, and events")
+	}
 
 	// Initialize risk engine
 	riskEngine := risk.NewEngine(dataStore, &cfg.Risk)

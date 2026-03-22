@@ -13,12 +13,12 @@ import (
 
 // Engine computes risk scores and runs reroute simulations.
 type Engine struct {
-	store  *store.Store
+	store  store.Store
 	config *config.RiskConfig
 }
 
 // NewEngine creates a new risk scoring engine.
-func NewEngine(s *store.Store, cfg *config.RiskConfig) *Engine {
+func NewEngine(s store.Store, cfg *config.RiskConfig) *Engine {
 	return &Engine{store: s, config: cfg}
 }
 
@@ -26,8 +26,8 @@ func NewEngine(s *store.Store, cfg *config.RiskConfig) *Engine {
 // Uses weighted factors: supply concentration (40%), geopolitical tension (30%),
 // trade policy signals (20%), logistics risk (10%).
 func (e *Engine) ComputeRiskScore(region, resource string) models.RiskScore {
-	suppliers := e.store.GetSuppliers(resource)
-	events := e.store.GetRecentEvents(50)
+	suppliers, _ := e.store.GetSuppliers(resource)
+	events, _ := e.store.GetRecentEvents(50)
 
 	// 1. Supply Concentration Score (0-100)
 	concentrationScore := e.computeConcentration(suppliers, region)
@@ -88,8 +88,6 @@ func (e *Engine) computeGeopoliticalTension(events []models.GDELTEvent, region s
 
 	for _, evt := range events {
 		if evt.Actor1Country == region || evt.Actor2Country == region {
-			// GoldsteinScale: -10 (conflict) to +10 (cooperation)
-			// Invert and normalize to 0-100 where 100 = maximum tension
 			totalTone += evt.GoldsteinScale
 			count++
 		}
@@ -100,7 +98,6 @@ func (e *Engine) computeGeopoliticalTension(events []models.GDELTEvent, region s
 	}
 
 	avgGoldstein := totalTone / float64(count)
-	// Convert -10..+10 to 0..100 (inverted: -10 → 100, +10 → 0)
 	score := ((avgGoldstein * -1) + 10) * 5
 	return clamp(score, 0, 100)
 }
@@ -125,22 +122,20 @@ func (e *Engine) computeTradePolicySignal(events []models.GDELTEvent, region str
 		return 30 // Default low-moderate when no data
 	}
 
-	// Higher ratio of escalation events = higher risk
 	ratio := float64(escalationCount) / float64(total)
 	return clamp(ratio*100, 0, 100)
 }
 
 // computeLogisticsRisk scores shipping/transport vulnerability.
 func (e *Engine) computeLogisticsRisk(region string) float64 {
-	// Hardcoded logistics risk based on known shipping dependencies
 	risks := map[string]float64{
-		"China":         55.0, // Dependent on Malacca Strait
-		"Japan":         45.0, // Pacific shipping lanes
-		"South Korea":   40.0, // Pacific shipping lanes
-		"Germany":       30.0, // European rail + short sea routes
-		"Belgium":       25.0, // European logistics hub
-		"Canada":        20.0, // Direct North America
-		"United Kingdom": 30.0, // Atlantic routes
+		"China":         55.0,
+		"Japan":         45.0,
+		"South Korea":   40.0,
+		"Germany":       30.0,
+		"Belgium":       25.0,
+		"Canada":        20.0,
+		"United Kingdom": 30.0,
 	}
 
 	if score, ok := risks[region]; ok {
@@ -150,11 +145,8 @@ func (e *Engine) computeLogisticsRisk(region string) float64 {
 }
 
 // SimulateReroute runs a shadow reroute simulation for a given resource.
-// When a high-risk region's score exceeds the threshold, it identifies
-// the top 3 alternative suppliers that could absorb the disrupted demand.
 func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
-	// Get the high-risk region (China for Ga/Ge)
-	riskScores := e.store.GetRiskScores(resource)
+	riskScores, _ := e.store.GetRiskScores(resource)
 	var triggerScore *models.RiskScore
 	for i, rs := range riskScores {
 		if rs.OverallScore >= e.config.RerouteTriggerThreshold {
@@ -167,8 +159,7 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 		return nil // No disruption scenario triggered
 	}
 
-	// Get disrupted capacity
-	suppliers := e.store.GetSuppliers(resource)
+	suppliers, _ := e.store.GetSuppliers(resource)
 	var disruptedCapacity float64
 	for _, s := range suppliers {
 		if s.Country == triggerScore.Country {
@@ -176,10 +167,8 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 		}
 	}
 
-	// Find alternatives
-	alternatives := e.store.GetAlternativeSuppliers(resource)
+	alternatives, _ := e.store.GetAlternativeSuppliers(resource)
 
-	// Score and rank each alternative
 	var ranked []models.RerouteAlternative
 	for _, alt := range alternatives {
 		absorptionPct := 0.0
@@ -187,7 +176,6 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 			absorptionPct = (alt.CapacityTonnesYr / disruptedCapacity) * 100
 		}
 
-		// Feasibility: weighted by neutrality, capacity, and logistics
 		feasibility := (alt.NeutralityScore * 40) +
 			(clamp(absorptionPct, 0, 100) * 0.3) +
 			((100 - e.computeLogisticsRisk(alt.Country)) * 0.3)
@@ -205,12 +193,10 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 		})
 	}
 
-	// Sort by feasibility score (descending)
 	sort.Slice(ranked, func(i, j int) bool {
 		return ranked[i].FeasibilityScore > ranked[j].FeasibilityScore
 	})
 
-	// Take top 3
 	if len(ranked) > 3 {
 		ranked = ranked[:3]
 	}
@@ -224,7 +210,7 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 		SimulatedAt:      time.Now(),
 	}
 
-	e.store.SaveRerouteResult(*result)
+	_ = e.store.SaveRerouteResult(*result)
 	return result
 }
 
@@ -246,7 +232,7 @@ func (e *Engine) RecalculateAll() {
 
 	for _, r := range regions {
 		score := e.ComputeRiskScore(r.region, r.resource)
-		e.store.SaveRiskScore(score)
+		_ = e.store.SaveRiskScore(score)
 	}
 }
 

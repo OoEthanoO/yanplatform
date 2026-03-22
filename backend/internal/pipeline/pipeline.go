@@ -153,13 +153,13 @@ func (c *NIMClient) fallbackClassify(text string) string {
 // GDELTPipeline ingests geopolitical events from GDELT via BigQuery.
 // For MVP without BigQuery credentials, it operates on seed data already in the store.
 type GDELTPipeline struct {
-	store  *store.Store
+	store  store.Store
 	nim    *NIMClient
 	config *config.BigQueryConfig
 }
 
 // NewGDELTPipeline creates a new GDELT pipeline.
-func NewGDELTPipeline(s *store.Store, nim *NIMClient, cfg *config.BigQueryConfig) *GDELTPipeline {
+func NewGDELTPipeline(s store.Store, nim *NIMClient, cfg *config.BigQueryConfig) *GDELTPipeline {
 	return &GDELTPipeline{store: s, nim: nim, config: cfg}
 }
 
@@ -170,7 +170,7 @@ func (p *GDELTPipeline) Run() {
 	log.Println("[GDELT Pipeline] Starting ingestion cycle...")
 
 	// Process existing events through NIM for sentiment classification
-	events := p.store.GetRecentEvents(20)
+	events, _ := p.store.GetRecentEvents(20)
 	for _, evt := range events {
 		if evt.SentimentLabel != "" {
 			continue // Already classified
@@ -184,7 +184,7 @@ func (p *GDELTPipeline) Run() {
 
 		evt.SentimentLabel = label
 		evt.Relevance = relevance
-		p.store.SaveEvent(evt)
+		_ = p.store.SaveEvent(evt)
 	}
 
 	log.Printf("[GDELT Pipeline] Processed %d events", len(events))
@@ -192,13 +192,13 @@ func (p *GDELTPipeline) Run() {
 
 // ComtradePipeline ingests trade flow data from UN Comtrade API.
 type ComtradePipeline struct {
-	store  *store.Store
+	store  store.Store
 	config *config.ComtradeConfig
 	client *http.Client
 }
 
 // NewComtradePipeline creates a new UN Comtrade pipeline.
-func NewComtradePipeline(s *store.Store, cfg *config.ComtradeConfig) *ComtradePipeline {
+func NewComtradePipeline(s store.Store, cfg *config.ComtradeConfig) *ComtradePipeline {
 	return &ComtradePipeline{
 		store:  s,
 		config: cfg,
@@ -277,7 +277,7 @@ func (p *ComtradePipeline) fetchTradeData(hsCode, resource string) {
 			WeightKg:        d.NetWgt,
 			IngestedAt:      time.Now(),
 		}
-		p.store.SaveTradeFlow(flow)
+		_ = p.store.SaveTradeFlow(flow)
 	}
 
 	log.Printf("[Comtrade Pipeline] Ingested %d trade records for %s", len(result.Data), resource)

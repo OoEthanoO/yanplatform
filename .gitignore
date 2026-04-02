@@ -1,5 +1,12 @@
 # Operating System
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+config.plist
 *.swp
 *~
 
@@ -7,10 +14,25 @@
 .idea/
 .vscode/
 *.iml
-*.suq
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+.nbproject/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment Variables
+.env
+.env.*
+!.env.example
 
 # Go Backend
-backend/bin/
+**/backend/bin/
 backend/*.exe
 backend/*.exe~
 backend/*.dll
@@ -19,8 +41,23 @@ backend/*.dylib
 backend/*.test
 backend/*.out
 backend/vendor/
+backend/go.work
+backend/go.work.sum
 
-# Environment Variables
-.env
-.env.*
-*.local
+# Flutter / Dart (Global patterns)
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/doc/api/
+/frontend/.packages
+
+# Build artifacts
+**/node_modules/
+**/dist/
+**/out/
+
+# Logs
+*.log

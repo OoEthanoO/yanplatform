@@ -144,28 +144,32 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildHeader(ColorScheme colorScheme) {
     return Row(
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'YanPlatform',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurface,
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'YanPlatform',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Gallium (Ga) & Germanium (Ge) — Real-time Risk Monitoring',
-              style: TextStyle(
-                fontSize: 14,
-                color: colorScheme.onSurfaceVariant,
+              const SizedBox(height: 4),
+              Text(
+                'Gallium (Ga) & Germanium (Ge) — Real-time Risk Monitoring',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-        const Spacer(),
+        const SizedBox(width: 16),
         FilledButton.tonalIcon(
           onPressed: _loadData,
           icon: const Icon(Icons.refresh, size: 18),
@@ -216,15 +220,18 @@ class _DashboardPageState extends State<DashboardPage> {
               children: [
                 Icon(icon, color: colorScheme.primary, size: 24),
                 const SizedBox(width: 12),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -332,41 +339,92 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildStatsRow(ColorScheme colorScheme) {
     if (_overview == null) return const SizedBox.shrink();
 
-    return Row(
-      children: [
-        _buildStatCard(
-          Icons.event_note,
-          '${_overview!.recentEvents}',
-          'Tracked Events',
-          colorScheme.primary,
-          colorScheme,
-        ),
-        const SizedBox(width: 16),
-        _buildStatCard(
-          Icons.warning_amber_rounded,
-          '${_overview!.highRiskZones}',
-          'High-Risk Zones',
-          Colors.red.shade400,
-          colorScheme,
-        ),
-        const SizedBox(width: 16),
-        _buildStatCard(
-          Icons.location_on,
-          '${_chokepoints.length}',
-          'Chokepoints',
-          Colors.orange.shade400,
-          colorScheme,
-        ),
-        const SizedBox(width: 16),
-        _buildStatCard(
-          Icons.swap_horiz,
-          '${_tradeFlows.length}',
-          'Trade Flows',
-          Colors.teal.shade400,
-          colorScheme,
-        ),
-      ],
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      // Determine if we should stack the cards or keep them side-by-side
+      final bool isTight = constraints.maxWidth < 800;
+
+      if (isTight) {
+        return Column(
+          children: [
+            Row(
+              children: [
+                _buildStatCard(
+                  Icons.event_note,
+                  '${_overview!.recentEvents}',
+                  'Tracked Events',
+                  colorScheme.primary,
+                  colorScheme,
+                ),
+                const SizedBox(width: 16),
+                _buildStatCard(
+                  Icons.warning_amber_rounded,
+                  '${_overview!.highRiskZones}',
+                  'High-Risk Zones',
+                  Colors.red.shade400,
+                  colorScheme,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildStatCard(
+                  Icons.location_on,
+                  '${_chokepoints.length}',
+                  'Chokepoints',
+                  Colors.orange.shade400,
+                  colorScheme,
+                ),
+                const SizedBox(width: 16),
+                _buildStatCard(
+                  Icons.swap_horiz,
+                  '${_tradeFlows.length}',
+                  'Trade Flows',
+                  Colors.teal.shade400,
+                  colorScheme,
+                ),
+              ],
+            ),
+          ],
+        );
+      }
+
+      return Row(
+        children: [
+          _buildStatCard(
+            Icons.event_note,
+            '${_overview!.recentEvents}',
+            'Tracked Events',
+            colorScheme.primary,
+            colorScheme,
+          ),
+          const SizedBox(width: 16),
+          _buildStatCard(
+            Icons.warning_amber_rounded,
+            '${_overview!.highRiskZones}',
+            'High-Risk Zones',
+            Colors.red.shade400,
+            colorScheme,
+          ),
+          const SizedBox(width: 16),
+          _buildStatCard(
+            Icons.location_on,
+            '${_chokepoints.length}',
+            'Chokepoints',
+            Colors.orange.shade400,
+            colorScheme,
+          ),
+          const SizedBox(width: 16),
+          _buildStatCard(
+            Icons.swap_horiz,
+            '${_tradeFlows.length}',
+            'Trade Flows',
+            Colors.teal.shade400,
+            colorScheme,
+          ),
+        ],
+      );
+    });
   }
 
   Widget _buildStatCard(IconData icon, String value, String label,
@@ -701,8 +759,8 @@ class _DashboardPageState extends State<DashboardPage> {
               ],
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
               child: DataTable(
                 headingRowColor: WidgetStateProperty.all(
                     colorScheme.surfaceContainerLow),

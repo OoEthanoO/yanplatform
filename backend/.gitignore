@@ -1,0 +1,23 @@
+# Go-specific ignores
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+
+# Coverage profiles
+*.out
+
+# Dependency directory
+vendor/
+
+# Environment variables
+.env
+.env.*
+
+# macOS-specific
+.DS_Store

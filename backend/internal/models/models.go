@@ -9,6 +9,16 @@ type Resource struct {
 	Name string `json:"name" firestore:"name"`
 	// HS commodity codes for trade data lookup
 	HSCodes []string `json:"hs_codes" firestore:"hs_codes"`
+	// PrimaryRegion is the main region we monitor for risk (e.g. "China")
+	PrimaryRegion string `json:"primary_region" firestore:"primary_region"`
+}
+
+// ResourceCluster groups resources together (e.g. "Semiconductors", "EV Battery Belt").
+type ResourceCluster struct {
+	ID          string   `json:"id" firestore:"id"`
+	Name        string   `json:"name" firestore:"name"`
+	Description string   `json:"description" firestore:"description"`
+	ResourceIDs []string `json:"resource_ids" firestore:"resource_ids"`
 }
 
 // Supplier represents a known producer/refiner of a tracked resource.
@@ -98,11 +108,10 @@ type RerouteAlternative struct {
 
 // RiskOverview is the API response for the dashboard overview.
 type RiskOverview struct {
-	GalliumRisk    RiskScore `json:"gallium_risk"`
-	GermaniumRisk  RiskScore `json:"germanium_risk"`
-	RecentEvents   int       `json:"recent_events"`
-	HighRiskZones  int       `json:"high_risk_zones"`
-	LastUpdated    time.Time `json:"last_updated"`
+	ResourceRisks map[string]RiskScore `json:"resource_risks"`
+	RecentEvents  int                  `json:"recent_events"`
+	HighRiskZones int                  `json:"high_risk_zones"`
+	LastUpdated   time.Time            `json:"last_updated"`
 }
 
 // Chokepoint represents a geographic bottleneck in the supply chain.

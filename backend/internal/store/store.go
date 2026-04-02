@@ -27,6 +27,12 @@ type Store interface {
 	GetLatestRerouteResult(resource string) (*models.RerouteResult, error)
 	SaveChokepoint(cp models.Chokepoint) error
 	GetChokepoints(resource string) ([]models.Chokepoint, error)
+	SaveResource(res models.Resource) error
+	GetResources() ([]models.Resource, error)
+	GetResource(id string) (*models.Resource, error)
+	SaveCluster(cluster models.ResourceCluster) error
+	GetClusters() ([]models.ResourceCluster, error)
+	GetCluster(id string) (*models.ResourceCluster, error)
 	SeedInitialData() error
 }
 
@@ -39,6 +45,8 @@ type MemoryStore struct {
 	tradeFlows     []models.TradeFlow
 	rerouteResults []models.RerouteResult
 	chokepoints    []models.Chokepoint
+	resources      []models.Resource
+	clusters       []models.ResourceCluster
 }
 
 // NewMemoryStore creates a new in-memory store.
@@ -287,14 +295,124 @@ func (s *MemoryStore) GetChokepoints(resource string) ([]models.Chokepoint, erro
 	return filtered, nil
 }
 
+// --- Resources ---
+
+// SaveResource upserts a resource.
+func (s *MemoryStore) SaveResource(res models.Resource) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, existing := range s.resources {
+		if existing.ID == res.ID {
+			s.resources[i] = res
+			return nil
+		}
+	}
+	s.resources = append(s.resources, res)
+	return nil
+}
+
+// GetResources returns all tracked resources.
+func (s *MemoryStore) GetResources() ([]models.Resource, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]models.Resource, len(s.resources))
+	copy(result, s.resources)
+	return result, nil
+}
+
+// GetResource returns a single resource by ID.
+func (s *MemoryStore) GetResource(id string) (*models.Resource, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, res := range s.resources {
+		if res.ID == id {
+			return &res, nil
+		}
+	}
+	return nil, nil
+}
+
+// --- Clusters ---
+
+// SaveCluster upserts a resource cluster.
+func (s *MemoryStore) SaveCluster(cluster models.ResourceCluster) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, existing := range s.clusters {
+		if existing.ID == cluster.ID {
+			s.clusters[i] = cluster
+			return nil
+		}
+	}
+	s.clusters = append(s.clusters, cluster)
+	return nil
+}
+
+// GetClusters returns all resource clusters.
+func (s *MemoryStore) GetClusters() ([]models.ResourceCluster, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]models.ResourceCluster, len(s.clusters))
+	copy(result, s.clusters)
+	return result, nil
+}
+
+// GetCluster returns a single cluster by ID.
+func (s *MemoryStore) GetCluster(id string) (*models.ResourceCluster, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, c := range s.clusters {
+		if c.ID == id {
+			return &c, nil
+		}
+	}
+	return nil, nil
+}
+
 // --- Seed Helpers ---
 
-// SeedInitialData populates the store with baseline chokepoints and computed risk scores.
+// SeedInitialData populates the store with baseline resources, clusters, chokepoints, and risk scores.
 func (s *MemoryStore) SeedInitialData() error {
 	now := time.Now()
 
-	// Known chokepoints for gallium and germanium
+	// 1. Initial Resources
+	resources := []models.Resource{
+		{ID: "gallium", Name: "Gallium", PrimaryRegion: "China", HSCodes: []string{"811292"}},
+		{ID: "germanium", Name: "Germanium", PrimaryRegion: "China", HSCodes: []string{"811110"}},
+		{ID: "lithium", Name: "Lithium", PrimaryRegion: "Australia", HSCodes: []string{"283691"}},
+		{ID: "cobalt", Name: "Cobalt", PrimaryRegion: "DR Congo", HSCodes: []string{"810520"}},
+		{ID: "graphite", Name: "Graphite", PrimaryRegion: "China", HSCodes: []string{"250410"}},
+	}
+	for _, r := range resources {
+		s.SaveResource(r)
+	}
+
+	// 2. Initial Clusters
+	clusters := []models.ResourceCluster{
+		{
+			ID: "cluster-semiconductors", Name: "Semiconductor Criticals",
+			Description: "Minerals essential for high-frequency chips and vacuum tubes",
+			ResourceIDs: []string{"gallium", "germanium"},
+		},
+		{
+			ID: "cluster-green-energy", Name: "Green Energy / EV Battery Belt",
+			Description: "Minerals essential for electric vehicle batteries and energy storage",
+			ResourceIDs: []string{"lithium", "cobalt", "graphite"},
+		},
+	}
+	for _, c := range clusters {
+		s.SaveCluster(c)
+	}
+
+	// 3. Known chokepoints
 	chokepoints := []models.Chokepoint{
+		// Gallium/Germanium
 		{
 			ID: "cp-china-yunnan-ga", Name: "Yunnan Gallium Processing Hub",
 			Type: "production", Country: "China", Region: "Yunnan Province",
@@ -302,34 +420,31 @@ func (s *MemoryStore) SeedInitialData() error {
 			Latitude: 25.0389, Longitude: 102.7183,
 		},
 		{
-			ID: "cp-china-inner-mongolia-ga", Name: "Inner Mongolia Gallium Refineries",
-			Type: "production", Country: "China", Region: "Inner Mongolia",
-			GlobalSharePct: 35.0, Resource: "gallium", RiskLevel: "critical",
-			Latitude: 40.8174, Longitude: 111.7656,
-		},
-		{
 			ID: "cp-china-yunnan-ge", Name: "Yunnan Germanium Processing",
 			Type: "production", Country: "China", Region: "Yunnan Province",
 			GlobalSharePct: 45.0, Resource: "germanium", RiskLevel: "critical",
 			Latitude: 25.0389, Longitude: 102.7183,
 		},
+		// Lithium
 		{
-			ID: "cp-china-inner-mongolia-ge", Name: "Inner Mongolia Germanium Refinery",
-			Type: "production", Country: "China", Region: "Inner Mongolia",
-			GlobalSharePct: 25.0, Resource: "germanium", RiskLevel: "critical",
-			Latitude: 40.8174, Longitude: 111.7656,
+			ID: "cp-australia-pilbara", Name: "Pilbara Lithium Mines",
+			Type: "production", Country: "Australia", Region: "Western Australia",
+			GlobalSharePct: 48.0, Resource: "lithium", RiskLevel: "low",
+			Latitude: -21.6, Longitude: 119.1,
 		},
+		// Cobalt
 		{
-			ID: "cp-malacca-strait", Name: "Strait of Malacca",
-			Type: "shipping", Country: "International", Region: "Southeast Asia",
-			GlobalSharePct: 60.0, Resource: "gallium", RiskLevel: "elevated",
-			Latitude: 2.5, Longitude: 101.8,
+			ID: "cp-drc-kolwezi", Name: "Kolwezi Cobalt Mining Region",
+			Type: "production", Country: "DR Congo", Region: "Lualaba Province",
+			GlobalSharePct: 70.0, Resource: "cobalt", RiskLevel: "critical",
+			Latitude: -10.7, Longitude: 25.5,
 		},
+		// Graphite
 		{
-			ID: "cp-suez-canal", Name: "Suez Canal",
-			Type: "shipping", Country: "Egypt", Region: "Suez",
-			GlobalSharePct: 30.0, Resource: "germanium", RiskLevel: "elevated",
-			Latitude: 30.4574, Longitude: 32.3499,
+			ID: "cp-china-heilongjiang-graphite", Name: "Heilongjiang Graphite Hub",
+			Type: "production", Country: "China", Region: "Heilongjiang Province",
+			GlobalSharePct: 65.0, Resource: "graphite", RiskLevel: "critical",
+			Latitude: 47.0, Longitude: 129.0,
 		},
 	}
 
@@ -337,7 +452,7 @@ func (s *MemoryStore) SeedInitialData() error {
 		s.SaveChokepoint(cp)
 	}
 
-	// Initial risk scores based on known supply concentration
+	// Initial risk scores
 	riskScores := []models.RiskScore{
 		{
 			ID: "risk-china-ga", Region: "China", Country: "China", Resource: "gallium",
@@ -349,6 +464,18 @@ func (s *MemoryStore) SeedInitialData() error {
 			ID: "risk-china-ge", Region: "China", Country: "China", Resource: "germanium",
 			OverallScore: 78.0, SupplyConcentration: 85.0, GeopoliticalTension: 75.0,
 			TradePolicySignal: 80.0, LogisticsRisk: 45.0,
+			ComputedAt: now, IsHighRisk: true,
+		},
+		{
+			ID: "risk-australia-li", Region: "Australia", Country: "Australia", Resource: "lithium",
+			OverallScore: 25.0, SupplyConcentration: 50.0, GeopoliticalTension: 15.0,
+			TradePolicySignal: 10.0, LogisticsRisk: 25.0,
+			ComputedAt: now, IsHighRisk: false,
+		},
+		{
+			ID: "risk-drc-co", Region: "DR Congo", Country: "DR Congo", Resource: "cobalt",
+			OverallScore: 88.0, SupplyConcentration: 70.0, GeopoliticalTension: 90.0,
+			TradePolicySignal: 40.0, LogisticsRisk: 85.0,
 			ComputedAt: now, IsHighRisk: true,
 		},
 		{

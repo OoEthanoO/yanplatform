@@ -214,25 +214,19 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 	return result
 }
 
-// RecalculateAll recalculates risk scores for all tracked regions.
+// RecalculateAll recalculates risk scores for all monitored resources.
 func (e *Engine) RecalculateAll() {
-	regions := []struct {
-		region   string
-		resource string
-	}{
-		{"China", "gallium"},
-		{"China", "germanium"},
-		{"Canada", "germanium"},
-		{"Japan", "gallium"},
-		{"Germany", "gallium"},
-		{"South Korea", "gallium"},
-		{"Belgium", "germanium"},
-		{"United Kingdom", "germanium"},
+	resources, err := e.store.GetResources()
+	if err != nil {
+		fmt.Printf("[Risk Engine] Error fetching resources: %v\n", err)
+		return
 	}
 
-	for _, r := range regions {
-		score := e.ComputeRiskScore(r.region, r.resource)
-		_ = e.store.SaveRiskScore(score)
+	for _, r := range resources {
+		if r.PrimaryRegion != "" {
+			score := e.ComputeRiskScore(r.PrimaryRegion, r.ID)
+			_ = e.store.SaveRiskScore(score)
+		}
 	}
 }
 

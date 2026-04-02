@@ -130,5 +130,77 @@
     "latitude": 52.0406,
     "longitude": -0.7594,
     "is_alternative": true
+  },
+  {
+    "id": "supplier-australia-li-1",
+    "name": "Albemarle (Talison)",
+    "country": "Australia",
+    "region": "Greenbushes",
+    "resource": "lithium",
+    "capacity_tonnes_yr": 1200000,
+    "neutrality_score": 0.90,
+    "latitude": -33.8500,
+    "longitude": 116.0500,
+    "is_alternative": false
+  },
+  {
+    "id": "supplier-chile-li-1",
+    "name": "SQM",
+    "country": "Chile",
+    "region": "Atacama",
+    "resource": "lithium",
+    "capacity_tonnes_yr": 180000,
+    "neutrality_score": 0.75,
+    "latitude": -23.5000,
+    "longitude": -68.3000,
+    "is_alternative": false
+  },
+  {
+    "id": "supplier-drc-co-1",
+    "name": "Glencore (Mutanda)",
+    "country": "DR Congo",
+    "region": "Lualaba",
+    "resource": "cobalt",
+    "capacity_tonnes_yr": 25000,
+    "neutrality_score": 0.30,
+    "latitude": -10.7000,
+    "longitude": 25.4000,
+    "is_alternative": false
+  },
+  {
+    "id": "supplier-drc-co-2",
+    "name": "China Molybdenum (Tenke Fungurume)",
+    "country": "DR Congo",
+    "region": "Lualaba",
+    "resource": "cobalt",
+    "capacity_tonnes_yr": 20000,
+    "neutrality_score": 0.20,
+    "latitude": -10.6000,
+    "longitude": 26.2000,
+    "is_alternative": false
+  },
+  {
+    "id": "supplier-china-gr-1",
+    "name": "Heilongjiang Graphite Hub",
+    "country": "China",
+    "region": "Heilongjiang",
+    "resource": "graphite",
+    "capacity_tonnes_yr": 500000,
+    "neutrality_score": 0.15,
+    "latitude": 47.0000,
+    "longitude": 130.0000,
+    "is_alternative": false
+  },
+  {
+    "id": "supplier-madagascar-gr-1",
+    "name": "Syrah Resources (Vidalia)",
+    "country": "Madagascar",
+    "region": "Balama",
+    "resource": "graphite",
+    "capacity_tonnes_yr": 350000,
+    "neutrality_score": 0.70,
+    "latitude": -13.5000,
+    "longitude": 38.5000,
+    "is_alternative": true
   }
 ]

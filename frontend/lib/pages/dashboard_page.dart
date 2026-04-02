@@ -182,27 +182,81 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildRiskCards(ColorScheme colorScheme) {
     if (_overview == null) return const SizedBox.shrink();
 
-    return Row(
-      children: [
-        Expanded(
-          child: _buildRiskCard(
-            'Gallium (Ga)',
-            _overview!.galliumRisk,
-            Icons.science_outlined,
-            colorScheme,
-          ),
+    final risks = _overview!.resourceRisks.entries.toList();
+    if (risks.isEmpty) return const SizedBox.shrink();
+
+    // Group risks into rows of 2
+    final rows = <Widget>[];
+    for (var i = 0; i < risks.length; i += 2) {
+      final isLastSingle = i + 1 == risks.length;
+      rows.add(
+        Row(
+          children: [
+            Expanded(
+              child: _buildRiskCard(
+                _formatResourceName(risks[i].key),
+                risks[i].value,
+                _getResourceIcon(risks[i].key),
+                colorScheme,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: isLastSingle
+                  ? const SizedBox.shrink()
+                  : _buildRiskCard(
+                      _formatResourceName(risks[i + 1].key),
+                      risks[i + 1].value,
+                      _getResourceIcon(risks[i + 1].key),
+                      colorScheme,
+                    ),
+            ),
+          ],
         ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: _buildRiskCard(
-            'Germanium (Ge)',
-            _overview!.germaniumRisk,
-            Icons.memory_outlined,
-            colorScheme,
-          ),
-        ),
-      ],
-    );
+      );
+      if (i + 2 < risks.length || (i + 1 < risks.length && !isLastSingle)) {
+        rows.add(const SizedBox(height: 16));
+      }
+    }
+
+    return Column(children: rows);
+  }
+
+  String _formatResourceName(String key) {
+    if (key.isEmpty) return '';
+    // e.g. "gallium" -> "Gallium (Ga)"
+    final caps = key[0].toUpperCase() + key.substring(1);
+    switch (key.toLowerCase()) {
+      case 'gallium':
+        return 'Gallium (Ga)';
+      case 'germanium':
+        return 'Germanium (Ge)';
+      case 'lithium':
+        return 'Lithium (Li)';
+      case 'cobalt':
+        return 'Cobalt (Co)';
+      case 'graphite':
+        return 'Graphite (C)';
+      default:
+        return caps;
+    }
+  }
+
+  IconData _getResourceIcon(String key) {
+    switch (key.toLowerCase()) {
+      case 'gallium':
+        return Icons.science_outlined;
+      case 'germanium':
+        return Icons.memory_outlined;
+      case 'lithium':
+        return Icons.battery_charging_full_outlined;
+      case 'cobalt':
+        return Icons.bolt_outlined;
+      case 'graphite':
+        return Icons.layers_outlined;
+      default:
+        return Icons.public_outlined;
+    }
   }
 
   Widget _buildRiskCard(

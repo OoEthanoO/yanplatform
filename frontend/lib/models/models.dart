@@ -45,24 +45,28 @@ class RiskScore {
 }
 
 class RiskOverview {
-  final RiskScore galliumRisk;
-  final RiskScore germaniumRisk;
+  final Map<String, RiskScore> resourceRisks;
   final int recentEvents;
   final int highRiskZones;
   final String lastUpdated;
 
   RiskOverview({
-    required this.galliumRisk,
-    required this.germaniumRisk,
+    required this.resourceRisks,
     required this.recentEvents,
     required this.highRiskZones,
     required this.lastUpdated,
   });
 
   factory RiskOverview.fromJson(Map<String, dynamic> json) {
+    final risksMap = <String, RiskScore>{};
+    if (json['resource_risks'] != null) {
+      (json['resource_risks'] as Map<String, dynamic>).forEach((key, value) {
+        risksMap[key] = RiskScore.fromJson(value);
+      });
+    }
+
     return RiskOverview(
-      galliumRisk: RiskScore.fromJson(json['gallium_risk'] ?? {}),
-      germaniumRisk: RiskScore.fromJson(json['germanium_risk'] ?? {}),
+      resourceRisks: risksMap,
       recentEvents: json['recent_events'] ?? 0,
       highRiskZones: json['high_risk_zones'] ?? 0,
       lastUpdated: json['last_updated'] ?? '',

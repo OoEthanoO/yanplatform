@@ -349,6 +349,114 @@ func (s *FirestoreStore) GetChokepoints(resource string) ([]models.Chokepoint, e
 	return chokepoints, nil
 }
 
+// --- Resources ---
+
+// SaveResource upserts a resource.
+func (s *FirestoreStore) SaveResource(res models.Resource) error {
+	ctx := context.Background()
+	_, err := s.client.Collection("resources").Doc(res.ID).Set(ctx, res)
+	if err != nil {
+		return fmt.Errorf("saving resource: %w", err)
+	}
+	return nil
+}
+
+// GetResources returns all tracked resources.
+func (s *FirestoreStore) GetResources() ([]models.Resource, error) {
+	ctx := context.Background()
+	var resources []models.Resource
+
+	iter := s.client.Collection("resources").Documents(ctx)
+	defer iter.Stop()
+
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("querying resources: %w", err)
+		}
+
+		var res models.Resource
+		if err := doc.DataTo(&res); err != nil {
+			return nil, fmt.Errorf("parsing resource: %w", err)
+		}
+		resources = append(resources, res)
+	}
+
+	return resources, nil
+}
+
+// GetResource returns a single resource by ID.
+func (s *FirestoreStore) GetResource(id string) (*models.Resource, error) {
+	ctx := context.Background()
+	doc, err := s.client.Collection("resources").Doc(id).Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting resource: %w", err)
+	}
+
+	var res models.Resource
+	if err := doc.DataTo(&res); err != nil {
+		return nil, fmt.Errorf("parsing resource: %w", err)
+	}
+	return &res, nil
+}
+
+// --- Clusters ---
+
+// SaveCluster upserts a resource cluster.
+func (s *FirestoreStore) SaveCluster(cluster models.ResourceCluster) error {
+	ctx := context.Background()
+	_, err := s.client.Collection("clusters").Doc(cluster.ID).Set(ctx, cluster)
+	if err != nil {
+		return fmt.Errorf("saving cluster: %w", err)
+	}
+	return nil
+}
+
+// GetClusters returns all resource clusters.
+func (s *FirestoreStore) GetClusters() ([]models.ResourceCluster, error) {
+	ctx := context.Background()
+	var clusters []models.ResourceCluster
+
+	iter := s.client.Collection("clusters").Documents(ctx)
+	defer iter.Stop()
+
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("querying clusters: %w", err)
+		}
+
+		var cluster models.ResourceCluster
+		if err := doc.DataTo(&cluster); err != nil {
+			return nil, fmt.Errorf("parsing cluster: %w", err)
+		}
+		clusters = append(clusters, cluster)
+	}
+
+	return clusters, nil
+}
+
+// GetCluster returns a single cluster by ID.
+func (s *FirestoreStore) GetCluster(id string) (*models.ResourceCluster, error) {
+	ctx := context.Background()
+	doc, err := s.client.Collection("clusters").Doc(id).Get(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting cluster: %w", err)
+	}
+
+	var cluster models.ResourceCluster
+	if err := doc.DataTo(&cluster); err != nil {
+		return nil, fmt.Errorf("parsing cluster: %w", err)
+	}
+	return &cluster, nil
+}
+
 // --- Seed Helpers ---
 
 // SeedInitialData relies on the MemoryStore seeding logic, but we could duplicate it here.

@@ -61,28 +61,24 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRiskOverview(w http.ResponseWriter, r *http.Request) {
-	gaScores, _ := s.store.GetRiskScores("gallium")
-	geScores, _ := s.store.GetRiskScores("germanium")
+	resources, _ := s.store.GetResources()
 	events, _ := s.store.GetRecentEvents(100)
 	highRisk, _ := s.store.GetHighRiskZones(70)
 
-	var gaRisk, geRisk models.RiskScore
-	for _, rs := range gaScores {
-		if rs.Country == "China" {
-			gaRisk = rs
-			break
-		}
-	}
-	for _, rs := range geScores {
-		if rs.Country == "China" {
-			geRisk = rs
-			break
+	resourceRisks := make(map[string]models.RiskScore)
+
+	for _, res := range resources {
+		scores, _ := s.store.GetRiskScores(res.ID)
+		for _, rs := range scores {
+			if rs.Country == res.PrimaryRegion {
+				resourceRisks[res.ID] = rs
+				break
+			}
 		}
 	}
 
 	overview := models.RiskOverview{
-		GalliumRisk:   gaRisk,
-		GermaniumRisk: geRisk,
+		ResourceRisks: resourceRisks,
 		RecentEvents:  len(events),
 		HighRiskZones: len(highRisk),
 		LastUpdated:   time.Now(),

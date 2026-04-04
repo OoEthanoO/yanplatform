@@ -64,7 +64,7 @@ func main() {
 	comtradePipeline := pipeline.NewComtradePipeline(dataStore, &cfg.Comtrade)
 
 	// Start pipeline scheduler
-	scheduler := pipeline.NewScheduler(gdeltPipeline, comtradePipeline, &cfg.Pipeline)
+	scheduler := pipeline.NewScheduler(gdeltPipeline, comtradePipeline, riskEngine, &cfg.Pipeline)
 	scheduler.Start()
 	log.Println("[Scheduler] Pipeline scheduler started")
 

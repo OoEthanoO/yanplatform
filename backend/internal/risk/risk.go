@@ -13,21 +13,21 @@ import (
 
 // Engine computes risk scores and runs reroute simulations.
 type Engine struct {
-	store  store.Store
-	config *config.RiskConfig
+	Store  store.Store
+	Config *config.RiskConfig
 }
 
 // NewEngine creates a new risk scoring engine.
 func NewEngine(s store.Store, cfg *config.RiskConfig) *Engine {
-	return &Engine{store: s, config: cfg}
+	return &Engine{Store: s, Config: cfg}
 }
 
 // ComputeRiskScore calculates the overall risk score for a resource in a specific region.
 // Uses weighted factors: supply concentration (40%), geopolitical tension (30%),
 // trade policy signals (20%), logistics risk (10%).
 func (e *Engine) ComputeRiskScore(region, resource string) models.RiskScore {
-	suppliers, _ := e.store.GetSuppliers(resource)
-	events, _ := e.store.GetRecentEvents(50)
+	suppliers, _ := e.Store.GetSuppliers(resource)
+	events, _ := e.Store.GetRecentEvents(50)
 
 	// 1. Supply Concentration Score (0-100)
 	concentrationScore := e.computeConcentration(suppliers, region)
@@ -42,10 +42,10 @@ func (e *Engine) ComputeRiskScore(region, resource string) models.RiskScore {
 	logisticsScore := e.computeLogisticsRisk(region)
 
 	// Weighted overall score
-	overall := (concentrationScore * e.config.WeightSupplyConcentration) +
-		(tensionScore * e.config.WeightGeopoliticalTension) +
-		(policyScore * e.config.WeightTradePolicySignal) +
-		(logisticsScore * e.config.WeightLogisticsRisk)
+	overall := (concentrationScore * e.Config.WeightSupplyConcentration) +
+		(tensionScore * e.Config.WeightGeopoliticalTension) +
+		(policyScore * e.Config.WeightTradePolicySignal) +
+		(logisticsScore * e.Config.WeightLogisticsRisk)
 
 	return models.RiskScore{
 		ID:                  fmt.Sprintf("risk-%s-%s", region, resource),
@@ -58,7 +58,7 @@ func (e *Engine) ComputeRiskScore(region, resource string) models.RiskScore {
 		TradePolicySignal:   policyScore,
 		LogisticsRisk:       logisticsScore,
 		ComputedAt:          time.Now(),
-		IsHighRisk:          overall >= e.config.HighRiskThreshold,
+		IsHighRisk:          overall >= e.Config.HighRiskThreshold,
 	}
 }
 
@@ -146,10 +146,10 @@ func (e *Engine) computeLogisticsRisk(region string) float64 {
 
 // SimulateReroute runs a shadow reroute simulation for a given resource.
 func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
-	riskScores, _ := e.store.GetRiskScores(resource)
+	riskScores, _ := e.Store.GetRiskScores(resource)
 	var triggerScore *models.RiskScore
 	for i, rs := range riskScores {
-		if rs.OverallScore >= e.config.RerouteTriggerThreshold {
+		if rs.OverallScore >= e.Config.RerouteTriggerThreshold {
 			triggerScore = &riskScores[i]
 			break
 		}
@@ -159,7 +159,7 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 		return nil // No disruption scenario triggered
 	}
 
-	suppliers, _ := e.store.GetSuppliers(resource)
+	suppliers, _ := e.Store.GetSuppliers(resource)
 	var disruptedCapacity float64
 	for _, s := range suppliers {
 		if s.Country == triggerScore.Country {
@@ -167,7 +167,7 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 		}
 	}
 
-	alternatives, _ := e.store.GetAlternativeSuppliers(resource)
+	alternatives, _ := e.Store.GetSuppliers(resource)
 
 	var ranked []models.RerouteAlternative
 	for _, alt := range alternatives {
@@ -210,13 +210,13 @@ func (e *Engine) SimulateReroute(resource string) *models.RerouteResult {
 		SimulatedAt:      time.Now(),
 	}
 
-	_ = e.store.SaveRerouteResult(*result)
+	_ = e.Store.SaveRerouteResult(*result)
 	return result
 }
 
 // RecalculateAll recalculates risk scores for all monitored resources.
 func (e *Engine) RecalculateAll() {
-	resources, err := e.store.GetResources()
+	resources, err := e.Store.GetResources()
 	if err != nil {
 		fmt.Printf("[Risk Engine] Error fetching resources: %v\n", err)
 		return
@@ -225,7 +225,7 @@ func (e *Engine) RecalculateAll() {
 	for _, r := range resources {
 		if r.PrimaryRegion != "" {
 			score := e.ComputeRiskScore(r.PrimaryRegion, r.ID)
-			_ = e.store.SaveRiskScore(score)
+			_ = e.Store.SaveRiskScore(score)
 		}
 	}
 }

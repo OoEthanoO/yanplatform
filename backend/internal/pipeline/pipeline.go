@@ -9,9 +9,13 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"context"
 
+	"cloud.google.com/go/bigquery"
+	"google.golang.org/api/iterator"
 	"yanplatform/backend/internal/config"
 	"yanplatform/backend/internal/models"
+	"yanplatform/backend/internal/risk"
 	"yanplatform/backend/internal/store"
 )
 
@@ -168,9 +172,17 @@ func NewGDELTPipeline(s store.Store, nim *NIMClient, cfg *config.BigQueryConfig)
 // Without credentials, it processes any events already in the store through NIM.
 func (p *GDELTPipeline) Run() {
 	log.Println("[GDELT Pipeline] Starting ingestion cycle...")
+	ctx := context.Background()
 
-	// Process existing events through NIM for sentiment classification
-	events, _ := p.store.GetRecentEvents(20)
+	// 1. Fetch live events from BigQuery if configured
+	if p.config.ProjectID != "" {
+		p.ingestFromBigQuery(ctx)
+	} else {
+		log.Println("[GDELT Pipeline] No BigQuery ProjectID configured — skipping live fetch")
+	}
+
+	// 2. Process existing events through NIM for sentiment classification
+	events, _ := p.store.GetRecentEvents(100)
 	for _, evt := range events {
 		if evt.SentimentLabel != "" {
 			continue // Already classified
@@ -188,6 +200,98 @@ func (p *GDELTPipeline) Run() {
 	}
 
 	log.Printf("[GDELT Pipeline] Processed %d events", len(events))
+}
+
+func (p *GDELTPipeline) ingestFromBigQuery(ctx context.Context) {
+	client, err := bigquery.NewClient(ctx, p.config.ProjectID)
+	if err != nil {
+		log.Printf("[GDELT Pipeline] BigQuery client error: %v", err)
+		return
+	}
+	defer client.Close()
+
+	resources, _ := p.store.GetResources()
+	if len(resources) == 0 {
+		return
+	}
+
+	// Construct dynamic keyword filter
+	var filter string
+	for i, r := range resources {
+		if i > 0 {
+			filter += " OR "
+		}
+		filter += fmt.Sprintf("SOURCEURL LIKE '%%%s%%'", r.ID)
+	}
+
+	// Dynamic SQL query against GDELT 2.0 public tables
+	// Limiting to last 48 hours for daily run
+	queryStr := fmt.Sprintf(`
+		SELECT 
+			GLOBALEVENTID as id,
+			TIMESTAMP(PARSE_DATE('%%Y%%m%%d', CAST(SQLDATE AS STRING))) as event_date,
+			Actor1Name as actor1,
+			Actor1CountryCode as actor1_country,
+			Actor2Name as actor2,
+			Actor2CountryCode as actor2_country,
+			EventCode as event_type,
+			SOURCEURL as url,
+			AvgTone as tone,
+			GoldsteinScale as goldstein
+		FROM `+"`%s.events`"+`
+		WHERE (%s)
+		AND SQLDATE >= %s
+		LIMIT 100`, p.config.GDELTDataset, filter, time.Now().Add(-48*time.Hour).Format("20060102"))
+
+	q := client.Query(queryStr)
+	it, err := q.Read(ctx)
+	if err != nil {
+		log.Printf("[GDELT Pipeline] BigQuery query error: %v", err)
+		return
+	}
+
+	var count int
+	for {
+		var r struct {
+			ID             int64     `bigquery:"id"`
+			EventDate      time.Time `bigquery:"event_date"`
+			Actor1Name     string    `bigquery:"actor1"`
+			Actor1Country  string    `bigquery:"actor1_country"`
+			Actor2Name     string    `bigquery:"actor2"`
+			Actor2Country  string    `bigquery:"actor2_country"`
+			EventType      string    `bigquery:"event_type"`
+			SourceURL      string    `bigquery:"url"`
+			AvgTone        float64   `bigquery:"tone"`
+			GoldsteinScale float64   `bigquery:"goldstein"`
+		}
+		err := it.Next(&r)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			log.Printf("[GDELT Pipeline] BigQuery iterator error: %v", err)
+			break
+		}
+
+		// Map to model and save
+		evt := models.GDELTEvent{
+			ID:             fmt.Sprintf("%d", r.ID),
+			EventDate:      r.EventDate,
+			Actor1Name:     r.Actor1Name,
+			Actor1Country:  r.Actor1Country,
+			Actor2Name:     r.Actor2Name,
+			Actor2Country:  r.Actor2Country,
+			EventType:      r.EventType,
+			Description:    fmt.Sprintf("Event in %s with %s involvement", r.SourceURL, r.Actor1Name),
+			AvgTone:        r.AvgTone,
+			GoldsteinScale: r.GoldsteinScale,
+			SourceURL:      r.SourceURL,
+			IngestedAt:     time.Now(),
+		}
+		_ = p.store.SaveEvent(evt)
+		count++
+	}
+	log.Printf("[GDELT Pipeline] Ingested %d live events from BigQuery", count)
 }
 
 // ComtradePipeline ingests trade flow data from UN Comtrade API.
@@ -216,10 +320,17 @@ func (p *ComtradePipeline) Run() {
 		return
 	}
 
-	// Fetch gallium trade data (HS code 811292)
-	p.fetchTradeData("811292", "gallium")
-	// Fetch germanium trade data (HS code 811110)
-	p.fetchTradeData("811110", "germanium")
+	resources, err := p.store.GetResources()
+	if err != nil {
+		log.Printf("[Comtrade Pipeline] Error fetching resources: %v", err)
+		return
+	}
+
+	for _, res := range resources {
+		for _, hsCode := range res.HSCodes {
+			p.fetchTradeData(hsCode, res.ID)
+		}
+	}
 }
 
 func (p *ComtradePipeline) fetchTradeData(hsCode, resource string) {
@@ -287,25 +398,31 @@ func (p *ComtradePipeline) fetchTradeData(hsCode, resource string) {
 type Scheduler struct {
 	gdelt       *GDELTPipeline
 	comtrade    *ComtradePipeline
+	riskEngine  *risk.Engine
 	config      *config.PipelineConfig
 	stopCh      chan struct{}
 }
 
 // NewScheduler creates a pipeline scheduler.
-func NewScheduler(gdelt *GDELTPipeline, comtrade *ComtradePipeline, cfg *config.PipelineConfig) *Scheduler {
+func NewScheduler(gdelt *GDELTPipeline, comtrade *ComtradePipeline, engine *risk.Engine, cfg *config.PipelineConfig) *Scheduler {
 	return &Scheduler{
-		gdelt:    gdelt,
-		comtrade: comtrade,
-		config:   cfg,
-		stopCh:   make(chan struct{}),
+		gdelt:      gdelt,
+		comtrade:   comtrade,
+		riskEngine: engine,
+		config:     cfg,
+		stopCh:     make(chan struct{}),
 	}
 }
 
 // Start begins periodic pipeline execution in background goroutines.
 func (s *Scheduler) Start() {
 	// Run once immediately
-	go s.gdelt.Run()
-	go s.comtrade.Run()
+	go func() {
+		s.gdelt.Run()
+		s.comtrade.Run()
+		s.riskEngine.RecalculateAll()
+		s.checkRiskTriggers()
+	}()
 
 	// GDELT ticker
 	go func() {
@@ -315,6 +432,8 @@ func (s *Scheduler) Start() {
 			select {
 			case <-ticker.C:
 				s.gdelt.Run()
+				s.riskEngine.RecalculateAll()
+				s.checkRiskTriggers()
 			case <-s.stopCh:
 				return
 			}
@@ -329,6 +448,8 @@ func (s *Scheduler) Start() {
 			select {
 			case <-ticker.C:
 				s.comtrade.Run()
+				s.riskEngine.RecalculateAll()
+				s.checkRiskTriggers()
 			case <-s.stopCh:
 				return
 			}
@@ -337,6 +458,26 @@ func (s *Scheduler) Start() {
 
 	log.Printf("[Scheduler] Started — GDELT every %d min, Comtrade every %d hr",
 		s.config.GDELTIntervalMinutes, s.config.ComtradeIntervalHours)
+}
+
+func (s *Scheduler) checkRiskTriggers() {
+	resources, _ := s.riskEngine.Store.GetResources()
+	threshold := s.riskEngine.Config.RerouteTriggerThreshold
+
+	for _, res := range resources {
+		// Fetch current risk score for this resource's primary region
+		scores, _ := s.riskEngine.Store.GetRiskScores(res.ID)
+		for _, rs := range scores {
+			if rs.Country == res.PrimaryRegion && rs.OverallScore >= threshold {
+				log.Printf("[SYSTEM ALERT] CRITICAL RISK DETECTED: %s score %.1f exceeds threshold %.1f in %s",
+					res.Name, rs.OverallScore, threshold, rs.Country)
+				
+				log.Printf("[Scheduler] Autonomously triggering Shadow Reroute simulation for %s...", res.ID)
+				_ = s.riskEngine.SimulateReroute(res.ID)
+				break
+			}
+		}
+	}
 }
 
 // Stop halts all pipeline goroutines.

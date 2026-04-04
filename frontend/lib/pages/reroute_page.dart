@@ -15,6 +15,7 @@ class ReroutePage extends StatefulWidget {
 class _ReroutePageState extends State<ReroutePage>
     with SingleTickerProviderStateMixin {
   String _selectedResource = 'gallium';
+  List<Resource> _resources = [];
   RerouteResult? _result;
   bool _loading = false;
   bool _simulated = false;
@@ -27,6 +28,24 @@ class _ReroutePageState extends State<ReroutePage>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+    _loadResources();
+  }
+
+  Future<void> _loadResources() async {
+    try {
+      final res = await widget.apiService.getResources();
+      if (mounted) {
+        setState(() {
+          _resources = res;
+          if (_resources.isNotEmpty &&
+              !_resources.any((r) => r.id == _selectedResource)) {
+            _selectedResource = _resources.first.id;
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading resources: $e');
+    }
   }
 
   @override
@@ -118,54 +137,56 @@ class _ReroutePageState extends State<ReroutePage>
         padding: const EdgeInsets.all(24),
         child: Row(
           children: [
-            Icon(Icons.science_outlined,
+            Icon(Icons.alt_route_outlined,
                 color: colorScheme.primary, size: 24),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Disruption Scenario',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: colorScheme.onSurface,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Disruption Scenario',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.onSurface,
+                    ),
                   ),
-                ),
-                Text(
-                  'Select a resource and run the reroute simulation',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: colorScheme.onSurfaceVariant,
+                  Text(
+                    'Select a resource to run the bypass algorithm',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const Spacer(),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: 'gallium',
-                  label: Text('Gallium (Ga)'),
-                  icon: Icon(Icons.science_outlined, size: 18),
-                ),
-                ButtonSegment(
-                  value: 'germanium',
-                  label: Text('Germanium (Ge)'),
-                  icon: Icon(Icons.memory_outlined, size: 18),
-                ),
-              ],
-              selected: {_selectedResource},
-              onSelectionChanged: (set) {
-                setState(() {
-                  _selectedResource = set.first;
-                  _simulated = false;
-                });
-              },
+                ],
+              ),
             ),
             const SizedBox(width: 16),
+            if (_resources.isEmpty)
+              const SizedBox(
+                  width: 200, child: LinearProgressIndicator(minHeight: 2))
+            else
+              SegmentedButton<String>(
+                showSelectedIcon: false,
+                segments: _resources.map((r) {
+                  return ButtonSegment(
+                    value: r.id,
+                    label: Text(r.name),
+                    icon: Icon(_getResourceIcon(r.id), size: 18),
+                  );
+                }).toList(),
+                selected: {_selectedResource},
+                onSelectionChanged: (set) {
+                  setState(() {
+                    _selectedResource = set.first;
+                    _simulated = false;
+                  });
+                },
+              ),
+            const SizedBox(width: 16),
             FilledButton.icon(
-              onPressed: _loading ? null : _runSimulation,
+              onPressed: _loading || _resources.isEmpty ? null : _runSimulation,
               icon: _loading
                   ? const SizedBox(
                       width: 18,
@@ -179,6 +200,23 @@ class _ReroutePageState extends State<ReroutePage>
         ),
       ),
     );
+  }
+
+  IconData _getResourceIcon(String key) {
+    switch (key.toLowerCase()) {
+      case 'gallium':
+        return Icons.science_outlined;
+      case 'germanium':
+        return Icons.memory_outlined;
+      case 'lithium':
+        return Icons.battery_charging_full_outlined;
+      case 'cobalt':
+        return Icons.bolt_outlined;
+      case 'graphite':
+        return Icons.layers_outlined;
+      default:
+        return Icons.public_outlined;
+    }
   }
 
   Widget _buildLoadingState(ColorScheme colorScheme) {

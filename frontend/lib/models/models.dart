@@ -1,5 +1,28 @@
 // Data models mirroring the Go backend structures.
 
+class Resource {
+  final String id;
+  final String name;
+  final List<String> hsCodes;
+  final String primaryRegion;
+
+  Resource({
+    required this.id,
+    required this.name,
+    required this.hsCodes,
+    required this.primaryRegion,
+  });
+
+  factory Resource.fromJson(Map<String, dynamic> json) {
+    return Resource(
+      id: json['id'] ?? '',
+      name: json['name'] ?? '',
+      hsCodes: List<String>.from(json['hs_codes'] ?? []),
+      primaryRegion: json['primary_region'] ?? '',
+    );
+  }
+}
+
 class RiskScore {
   final String id;
   final String region;

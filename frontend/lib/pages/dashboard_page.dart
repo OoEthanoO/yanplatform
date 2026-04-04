@@ -158,7 +158,9 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Gallium (Ga) & Germanium (Ge) — Real-time Risk Monitoring',
+                _overview == null
+                    ? 'Scan ongoing...'
+                    : '${_overview!.resourceRisks.keys.map((k) => k[0].toUpperCase() + k.substring(1)).join(', ')} — Real-time Risk Monitoring',
                 style: TextStyle(
                   fontSize: 14,
                   color: colorScheme.onSurfaceVariant,
@@ -553,11 +555,15 @@ class _DashboardPageState extends State<DashboardPage> {
                   ),
                 ),
                 const Spacer(),
-                Text(
-                  'Powered by GDELT + NVIDIA NIM',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: colorScheme.onSurfaceVariant,
+                Flexible(
+                  child: Text(
+                    'Powered by GDELT + NVIDIA NIM',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    textAlign: TextAlign.end,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
               ],

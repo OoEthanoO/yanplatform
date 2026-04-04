@@ -10,11 +10,19 @@ class ApiService {
   ApiService({this.baseUrl = 'http://localhost:8080'})
       : _client = http.Client();
 
-  /// Fetch the risk overview (gallium + germanium summary).
+  /// Fetch the risk overview (dynamic resource summary).
   Future<RiskOverview> getRiskOverview() async {
     final response = await _client.get(Uri.parse('$baseUrl/api/risk/overview'));
     _checkResponse(response);
     return RiskOverview.fromJson(json.decode(response.body));
+  }
+
+  /// Fetch all tracked resources.
+  Future<List<Resource>> getResources() async {
+    final response = await _client.get(Uri.parse('$baseUrl/api/resources'));
+    _checkResponse(response);
+    final list = json.decode(response.body) as List<dynamic>;
+    return list.map((e) => Resource.fromJson(e)).toList();
   }
 
   /// Fetch chokepoints, optionally filtered by resource.

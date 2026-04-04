@@ -47,6 +47,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/events/recent", s.handleRecentEvents)
 	s.mux.HandleFunc("GET /api/trade/flows", s.handleTradeFlows)
 	s.mux.HandleFunc("GET /api/suppliers", s.handleSuppliers)
+	s.mux.HandleFunc("GET /api/resources", s.handleResources)
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 }
 
@@ -132,6 +133,15 @@ func (s *Server) handleSuppliers(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
 	suppliers, _ := s.store.GetSuppliers(resource)
 	s.writeJSON(w, http.StatusOK, suppliers)
+}
+
+func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
+	resources, err := s.store.GetResources()
+	if err != nil {
+		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, resources)
 }
 
 // --- Middleware ---

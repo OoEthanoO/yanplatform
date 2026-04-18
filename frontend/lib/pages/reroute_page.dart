@@ -2,33 +2,65 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 
-/// Shadow Reroute simulation page.
+/// Alert Inbox + Manual Simulation page.
 class ReroutePage extends StatefulWidget {
   final ApiService apiService;
-
   const ReroutePage({super.key, required this.apiService});
-
   @override
   State<ReroutePage> createState() => _ReroutePageState();
 }
 
-class _ReroutePageState extends State<ReroutePage>
-    with SingleTickerProviderStateMixin {
+class _ReroutePageState extends State<ReroutePage> with TickerProviderStateMixin {
+  late TabController _tabController;
+
+  // Alert Inbox state
+  List<AlertRecord> _alerts = [];
+  Map<String, RerouteResult?> _alertReroutes = {};
+  String? _expandedAlertId;
+  bool _alertsLoading = true;
+
+  // Manual Simulation state
   String _selectedResource = 'gallium';
   List<Resource> _resources = [];
   RerouteResult? _result;
-  bool _loading = false;
+  bool _simLoading = false;
   bool _simulated = false;
   late AnimationController _animController;
 
   @override
   void initState() {
     super.initState();
-    _animController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
+    _tabController = TabController(length: 2, vsync: this);
+    _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
+    _loadAlerts();
     _loadResources();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _animController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadAlerts() async {
+    setState(() => _alertsLoading = true);
+    try {
+      final alerts = await widget.apiService.getRecentAlerts(limit: 20);
+      final reroutes = <String, RerouteResult?>{};
+      for (final a in alerts) {
+        if (a.resource.isNotEmpty) {
+          try {
+            reroutes[a.id] = await widget.apiService.getLatestRerouteResult(resource: a.resource);
+          } catch (_) {}
+        }
+      }
+      if (mounted) {
+        setState(() { _alerts = alerts; _alertReroutes = reroutes; _alertsLoading = false; });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _alertsLoading = false);
+    }
   }
 
   Future<void> _loadResources() async {
@@ -37,576 +69,345 @@ class _ReroutePageState extends State<ReroutePage>
       if (mounted) {
         setState(() {
           _resources = res;
-          if (_resources.isNotEmpty &&
-              !_resources.any((r) => r.id == _selectedResource)) {
+          if (_resources.isNotEmpty && !_resources.any((r) => r.id == _selectedResource)) {
             _selectedResource = _resources.first.id;
           }
         });
       }
+    } catch (_) {}
+  }
+
+  Future<void> _acknowledgeAlert(String id) async {
+    try {
+      await widget.apiService.acknowledgeAlert(id);
+      await _loadAlerts();
     } catch (e) {
-      debugPrint('Error loading resources: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
-  @override
-  void dispose() {
-    _animController.dispose();
-    super.dispose();
-  }
-
   Future<void> _runSimulation() async {
-    setState(() {
-      _loading = true;
-      _simulated = false;
-    });
-
+    setState(() { _simLoading = true; _simulated = false; });
     try {
-      final result = await widget.apiService
-          .simulateReroute(resource: _selectedResource);
-      setState(() {
-        _result = result;
-        _loading = false;
-        _simulated = true;
-      });
+      final result = await widget.apiService.simulateReroute(resource: _selectedResource);
+      setState(() { _result = result; _simLoading = false; _simulated = true; });
       _animController.forward(from: 0);
     } catch (e) {
-      setState(() {
-        _loading = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Simulation error: $e')),
-        );
-      }
+      setState(() => _simLoading = false);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Simulation error: $e')));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final cs = Theme.of(context).colorScheme;
+    final unacked = _alerts.where((a) => !a.acknowledged).length;
 
     return Scaffold(
-      backgroundColor: colorScheme.surface,
-      body: SingleChildScrollView(
+      backgroundColor: cs.surface,
+      body: Column(children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Command Center', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: cs.onSurface)),
+                const SizedBox(height: 4),
+                Text('Autonomous alerts and supply chain reroute simulations', style: TextStyle(fontSize: 14, color: cs.onSurfaceVariant)),
+              ])),
+              if (unacked > 0) Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(color: Colors.red.shade400.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.red.shade400.withValues(alpha: 0.3))),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.notifications_active, color: Colors.red.shade400, size: 16),
+                  const SizedBox(width: 6),
+                  Text('$unacked NEW', style: TextStyle(color: Colors.red.shade400, fontWeight: FontWeight.bold, fontSize: 12)),
+                ]),
+              ),
+            ]),
+            const SizedBox(height: 16),
+            TabBar(controller: _tabController, tabs: [
+              Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.inbox_outlined, size: 18), const SizedBox(width: 8), const Text('Alert Inbox'),
+                if (unacked > 0) ...[const SizedBox(width: 8), Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(color: Colors.red.shade400, borderRadius: BorderRadius.circular(10)),
+                  child: Text('$unacked', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                )],
+              ])),
+              const Tab(child: Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.play_circle_outline, size: 18), SizedBox(width: 8), Text('Manual Simulation')])),
+            ]),
+          ]),
+        ),
+        // Tab content
+        Expanded(child: TabBarView(controller: _tabController, children: [
+          _buildAlertInbox(cs),
+          _buildManualSimulation(cs),
+        ])),
+      ]),
+    );
+  }
+
+  // ══════ ALERT INBOX TAB ══════
+  Widget _buildAlertInbox(ColorScheme cs) {
+    if (_alertsLoading) return const Center(child: CircularProgressIndicator());
+    if (_alerts.isEmpty) return _buildEmptyAlerts(cs);
+
+    return RefreshIndicator(
+      onRefresh: _loadAlerts,
+      child: ListView.builder(
         padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(colorScheme),
-            const SizedBox(height: 24),
-            _buildSimulationControls(colorScheme),
-            const SizedBox(height: 24),
-            if (_loading) _buildLoadingState(colorScheme),
-            if (_simulated && _result != null) _buildResults(colorScheme),
-            if (_simulated && _result == null) _buildNoDisruption(colorScheme),
-            if (!_simulated && !_loading) _buildInitialState(colorScheme),
-          ],
-        ),
+        itemCount: _alerts.length,
+        itemBuilder: (ctx, i) => _buildAlertCard(_alerts[i], cs),
       ),
     );
   }
 
-  Widget _buildHeader(ColorScheme colorScheme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Shadow Reroute Simulation',
-          style: TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.bold,
-            color: colorScheme.onSurface,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Simulate supply chain disruptions and identify alternative supply routes',
-          style: TextStyle(
-            fontSize: 14,
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
+  Widget _buildEmptyAlerts(ColorScheme cs) {
+    return Center(child: Padding(padding: const EdgeInsets.all(48), child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.check_circle_outline, size: 80, color: Colors.green.shade400.withValues(alpha: 0.5)),
+      const SizedBox(height: 24),
+      Text('All Clear', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: cs.onSurface)),
+      const SizedBox(height: 8),
+      Text('No active alerts — your supply chains are\noperating within acceptable risk parameters.', style: TextStyle(fontSize: 14, color: cs.onSurfaceVariant), textAlign: TextAlign.center),
+    ])));
   }
 
-  Widget _buildSimulationControls(ColorScheme colorScheme) {
-    return Card(
-      color: colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          children: [
-            Icon(Icons.alt_route_outlined,
-                color: colorScheme.primary, size: 24),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Disruption Scenario',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                  Text(
-                    'Select a resource to run the bypass algorithm',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 16),
-            if (_resources.isEmpty)
-              const SizedBox(
-                  width: 200, child: LinearProgressIndicator(minHeight: 2))
-            else
-              SegmentedButton<String>(
-                showSelectedIcon: false,
-                segments: _resources.map((r) {
-                  return ButtonSegment(
-                    value: r.id,
-                    label: Text(r.name),
-                    icon: Icon(_getResourceIcon(r.id), size: 18),
-                  );
-                }).toList(),
-                selected: {_selectedResource},
-                onSelectionChanged: (set) {
-                  setState(() {
-                    _selectedResource = set.first;
-                    _simulated = false;
-                  });
-                },
-              ),
-            const SizedBox(width: 16),
-            FilledButton.icon(
-              onPressed: _loading || _resources.isEmpty ? null : _runSimulation,
-              icon: _loading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.play_arrow),
-              label: Text(_loading ? 'Simulating...' : 'Run Simulation'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildAlertCard(AlertRecord alert, ColorScheme cs) {
+    final isCritical = alert.severity == 'critical';
+    final sc = isCritical ? Colors.red.shade400 : Colors.orange.shade400;
+    final isExpanded = _expandedAlertId == alert.id;
+    final reroute = _alertReroutes[alert.id];
+    final timeAgo = _formatTimeAgo(alert.createdAt);
 
-  IconData _getResourceIcon(String key) {
-    switch (key.toLowerCase()) {
-      case 'gallium':
-        return Icons.science_outlined;
-      case 'germanium':
-        return Icons.memory_outlined;
-      case 'lithium':
-        return Icons.battery_charging_full_outlined;
-      case 'cobalt':
-        return Icons.bolt_outlined;
-      case 'graphite':
-        return Icons.layers_outlined;
-      default:
-        return Icons.public_outlined;
-    }
-  }
-
-  Widget _buildLoadingState(ColorScheme colorScheme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(48),
-        child: Column(
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 24),
-            Text(
-              'Analyzing disruption scenario...',
-              style: TextStyle(
-                fontSize: 16,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Identifying alternative suppliers in politically neutral zones',
-              style: TextStyle(
-                fontSize: 13,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInitialState(ColorScheme colorScheme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(48),
-        child: Column(
-          children: [
-            Icon(Icons.alt_route,
-                size: 80, color: colorScheme.primary.withValues(alpha: 0.3)),
-            const SizedBox(height: 24),
-            Text(
-              'Ready to Simulate',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Select a resource and click "Run Simulation" to test\nhow the supply chain responds to a disruption scenario.',
-              style: TextStyle(
-                fontSize: 14,
-                color: colorScheme.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNoDisruption(ColorScheme colorScheme) {
-    return Card(
-      color: Colors.green.shade900.withValues(alpha: 0.3),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Row(
-          children: [
-            Icon(Icons.check_circle, color: Colors.green.shade400, size: 48),
-            const SizedBox(width: 24),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'No Disruption Triggered',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.green.shade300,
-                    ),
-                  ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Card(
+        color: cs.surfaceContainerHighest,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: alert.acknowledged ? Colors.transparent : sc.withValues(alpha: 0.4), width: alert.acknowledged ? 0 : 1)),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => setState(() => _expandedAlertId = isExpanded ? null : alert.id),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              // Header row
+              Row(children: [
+                Container(width: 44, height: 44, decoration: BoxDecoration(color: sc.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(12)),
+                  child: Stack(children: [
+                    Center(child: Icon(isCritical ? Icons.error_outline : Icons.warning_amber, color: sc, size: 24)),
+                    if (!alert.acknowledged) Positioned(top: 4, right: 4, child: Container(width: 10, height: 10, decoration: BoxDecoration(color: sc, shape: BoxShape.circle, boxShadow: [BoxShadow(color: sc.withValues(alpha: 0.5), blurRadius: 6)]))),
+                  ])),
+                const SizedBox(width: 16),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), decoration: BoxDecoration(color: sc.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+                      child: Text(alert.severity.toUpperCase(), style: TextStyle(color: sc, fontSize: 10, fontWeight: FontWeight.bold))),
+                    const SizedBox(width: 8),
+                    Text(_fmtRes(alert.resource), style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+                    const Spacer(),
+                    Text(timeAgo, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                  ]),
                   const SizedBox(height: 4),
-                  Text(
-                    'No regions currently exceed the reroute trigger threshold for $_selectedResource. Supply chain risk is within acceptable bounds.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
+                  Text(alert.message, style: TextStyle(fontSize: 13, color: cs.onSurface, height: 1.4), maxLines: isExpanded ? null : 2, overflow: isExpanded ? null : TextOverflow.ellipsis),
+                ])),
+              ]),
+              // Expanded: show reroute result + acknowledge button
+              if (isExpanded) ...[
+                const SizedBox(height: 16),
+                const Divider(height: 1),
+                const SizedBox(height: 16),
+                // Stats row
+                Row(children: [
+                  _alertStat('Risk Score', '${alert.riskScore.toStringAsFixed(0)}/100', sc, cs),
+                  _alertStat('Threshold', alert.threshold.toStringAsFixed(0), cs.onSurfaceVariant, cs),
+                  _alertStat('Alternatives', alert.alternativesCount.toString(), Colors.green.shade400, cs),
+                  _alertStat('Region', alert.region, cs.primary, cs),
+                ]),
+                // Reroute alternatives
+                if (reroute != null && reroute.alternatives.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  Text('Autonomous Reroute Results', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+                  const SizedBox(height: 12),
+                  ...reroute.alternatives.asMap().entries.map((e) => _buildAltRow(e.key, e.value, cs)),
                 ],
-              ),
-            ),
-          ],
+                const SizedBox(height: 16),
+                Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                  if (!alert.acknowledged) FilledButton.icon(
+                    onPressed: () => _acknowledgeAlert(alert.id),
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text('Acknowledge'),
+                  ),
+                  if (alert.acknowledged) Chip(
+                    avatar: Icon(Icons.check_circle, color: Colors.green.shade400, size: 18),
+                    label: Text('Acknowledged', style: TextStyle(color: Colors.green.shade400, fontSize: 12)),
+                    backgroundColor: Colors.green.shade400.withValues(alpha: 0.1),
+                    side: BorderSide.none,
+                  ),
+                ]),
+              ],
+            ]),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildResults(ColorScheme colorScheme) {
-    final result = _result!;
+  Widget _alertStat(String label, String value, Color color, ColorScheme cs) {
+    return Expanded(child: Column(children: [
+      Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+      const SizedBox(height: 2),
+      Text(label, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+    ]));
+  }
 
+  Widget _buildAltRow(int rank, RerouteAlternative alt, ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: cs.surfaceContainerLow, borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          Container(width: 28, height: 28, decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.15), shape: BoxShape.circle),
+            child: Center(child: Text('#${rank + 1}', style: TextStyle(color: cs.primary, fontWeight: FontWeight.bold, fontSize: 12)))),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(alt.supplierName, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface)),
+            Text(alt.country, style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+          ])),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text('${alt.feasibilityScore.toStringAsFixed(0)}/100', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: _feasColor(alt.feasibilityScore))),
+            Text('${alt.leadTimeDays}d lead', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  // ══════ MANUAL SIMULATION TAB ══════
+  Widget _buildManualSimulation(ColorScheme cs) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _buildSimControls(cs),
+        const SizedBox(height: 24),
+        if (_simLoading) Center(child: Padding(padding: const EdgeInsets.all(48), child: Column(children: [
+          const CircularProgressIndicator(), const SizedBox(height: 24),
+          Text('Analyzing disruption scenario...', style: TextStyle(fontSize: 16, color: cs.onSurfaceVariant)),
+        ]))),
+        if (_simulated && _result != null) _buildSimResults(cs),
+        if (_simulated && _result == null) _buildNoDisruption(cs),
+        if (!_simulated && !_simLoading) Center(child: Padding(padding: const EdgeInsets.all(48), child: Column(children: [
+          Icon(Icons.alt_route, size: 80, color: cs.primary.withValues(alpha: 0.3)), const SizedBox(height: 24),
+          Text('Ready to Simulate', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: cs.onSurface)), const SizedBox(height: 8),
+          Text('Select a resource and click "Run Simulation" to test\nhow the supply chain responds to a disruption scenario.', style: TextStyle(fontSize: 14, color: cs.onSurfaceVariant), textAlign: TextAlign.center),
+        ]))),
+      ]),
+    );
+  }
+
+  Widget _buildSimControls(ColorScheme cs) {
+    return Card(color: cs.surfaceContainerHighest, child: Padding(padding: const EdgeInsets.all(24), child: Row(children: [
+      Icon(Icons.alt_route_outlined, color: cs.primary, size: 24), const SizedBox(width: 16),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Disruption Scenario', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: cs.onSurface)),
+        Text('Select a resource to run the bypass algorithm', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+      ])),
+      const SizedBox(width: 16),
+      if (_resources.isEmpty) const SizedBox(width: 200, child: LinearProgressIndicator(minHeight: 2))
+      else SegmentedButton<String>(
+        showSelectedIcon: false,
+        segments: _resources.map((r) => ButtonSegment(value: r.id, label: Text(r.name), icon: Icon(_resIcon(r.id), size: 18))).toList(),
+        selected: {_selectedResource},
+        onSelectionChanged: (s) => setState(() { _selectedResource = s.first; _simulated = false; }),
+      ),
+      const SizedBox(width: 16),
+      FilledButton.icon(
+        onPressed: _simLoading || _resources.isEmpty ? null : _runSimulation,
+        icon: _simLoading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
+        label: Text(_simLoading ? 'Simulating...' : 'Run Simulation'),
+      ),
+    ])));
+  }
+
+  Widget _buildNoDisruption(ColorScheme cs) {
+    return Card(color: Colors.green.shade900.withValues(alpha: 0.3), child: Padding(padding: const EdgeInsets.all(32), child: Row(children: [
+      Icon(Icons.check_circle, color: Colors.green.shade400, size: 48), const SizedBox(width: 24),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('No Disruption Triggered', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.green.shade300)),
+        const SizedBox(height: 4),
+        Text('No regions currently exceed the reroute trigger threshold for $_selectedResource.', style: TextStyle(fontSize: 14, color: cs.onSurface)),
+      ])),
+    ])));
+  }
+
+  Widget _buildSimResults(ColorScheme cs) {
+    final r = _result!;
     return FadeTransition(
       opacity: CurvedAnimation(parent: _animController, curve: Curves.easeIn),
-      child: Column(
-        children: [
-          // Disruption trigger card
-          _buildDisruptionCard(result, colorScheme),
-          const SizedBox(height: 24),
-          // Alternative suppliers
-          Text(
-            'Alternative Supply Routes',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: result.alternatives
-                .map((alt) => Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: _buildAlternativeCard(alt, colorScheme),
-                      ),
-                    ))
-                .toList(),
-          ),
-          const SizedBox(height: 24),
-          // Comparison table
-          _buildComparisonTable(result, colorScheme),
-        ],
-      ),
+      child: Column(children: [
+        // Disruption card
+        Card(color: Colors.red.shade900.withValues(alpha: 0.3), child: Padding(padding: const EdgeInsets.all(24), child: Row(children: [
+          Container(width: 56, height: 56, decoration: BoxDecoration(color: Colors.red.shade400.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(16)),
+            child: Icon(Icons.warning_amber, color: Colors.red.shade400, size: 32)),
+          const SizedBox(width: 20),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('⚠ Disruption Detected: ${r.triggerRegion}', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red.shade300)),
+            const SizedBox(height: 4),
+            Text('Risk score ${r.triggerRiskScore.toStringAsFixed(0)}/100 exceeds threshold. ${r.alternatives.length} alternative suppliers identified for ${r.resource}.', style: TextStyle(fontSize: 14, color: cs.onSurface, height: 1.4)),
+          ])),
+        ]))),
+        const SizedBox(height: 24),
+        Text('Alternative Supply Routes', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: cs.onSurface)),
+        const SizedBox(height: 16),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: r.alternatives.map((a) => Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8), child: _buildAltCard(a, cs)))).toList()),
+      ]),
     );
   }
 
-  Widget _buildDisruptionCard(
-      RerouteResult result, ColorScheme colorScheme) {
-    return Card(
-      color: Colors.red.shade900.withValues(alpha: 0.3),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Row(
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.red.shade400.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(Icons.warning_amber,
-                  color: Colors.red.shade400, size: 32),
-            ),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '⚠ Disruption Detected: ${result.triggerRegion}',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red.shade300,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Risk score ${result.triggerRiskScore.toStringAsFixed(0)}/100 exceeds reroute threshold. '
-                    'The system has identified ${result.alternatives.length} alternative suppliers '
-                    'in politically neutral zones that could absorb disrupted ${result.resource} supply.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: colorScheme.onSurface,
-                      height: 1.4,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  Widget _buildAltCard(RerouteAlternative alt, ColorScheme cs) {
+    return Card(color: cs.surfaceContainerHighest, child: Padding(padding: const EdgeInsets.all(20), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(width: 40, height: 40, decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
+          child: Icon(Icons.factory_outlined, color: cs.primary, size: 20)),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(alt.supplierName, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: cs.onSurface)),
+          Text(alt.country, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+        ])),
+      ]),
+      const Divider(height: 24),
+      _metricRow('Feasibility', '${alt.feasibilityScore.toStringAsFixed(0)}/100', cs),
+      const SizedBox(height: 8),
+      _metricRow('Capacity', '${alt.capacityTonnes.toStringAsFixed(0)} t/yr', cs),
+      const SizedBox(height: 8),
+      _metricRow('Absorption', '${alt.absorptionPct.toStringAsFixed(1)}%', cs),
+      const SizedBox(height: 8),
+      _metricRow('Lead Time', '${alt.leadTimeDays} days', cs),
+      const SizedBox(height: 12),
+      ClipRRect(borderRadius: BorderRadius.circular(4),
+        child: LinearProgressIndicator(value: alt.feasibilityScore / 100, backgroundColor: cs.surfaceContainerLow, valueColor: AlwaysStoppedAnimation(_feasColor(alt.feasibilityScore)), minHeight: 8)),
+    ])));
   }
 
-  Widget _buildAlternativeCard(
-      RerouteAlternative alt, ColorScheme colorScheme) {
-    return Card(
-      color: colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.factory_outlined,
-                      color: colorScheme.primary, size: 20),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        alt.supplierName,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: colorScheme.onSurface,
-                        ),
-                      ),
-                      Text(
-                        alt.country,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const Divider(height: 24),
-            _buildMetricRow('Feasibility',
-                '${alt.feasibilityScore.toStringAsFixed(0)}/100', colorScheme),
-            const SizedBox(height: 8),
-            _buildMetricRow(
-                'Capacity', '${alt.capacityTonnes.toStringAsFixed(0)} t/yr',
-                colorScheme),
-            const SizedBox(height: 8),
-            _buildMetricRow('Demand Absorption',
-                '${alt.absorptionPct.toStringAsFixed(1)}%', colorScheme),
-            const SizedBox(height: 8),
-            _buildMetricRow(
-                'Lead Time', '${alt.leadTimeDays} days', colorScheme),
-            const SizedBox(height: 12),
-            // Feasibility bar
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: alt.feasibilityScore / 100,
-                backgroundColor: colorScheme.surfaceContainerLow,
-                valueColor:
-                    AlwaysStoppedAnimation(_getRiskColor(alt.feasibilityScore)),
-                minHeight: 8,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _metricRow(String l, String v, ColorScheme cs) => Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+    Text(l, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+    Text(v, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: cs.onSurface)),
+  ]);
 
-  Widget _buildMetricRow(
-      String label, String value, ColorScheme colorScheme) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: colorScheme.onSurface,
-          ),
-        ),
-      ],
-    );
-  }
+  // ── Helpers ──
+  Color _feasColor(double s) => s >= 70 ? Colors.green.shade400 : s >= 40 ? Colors.orange.shade400 : Colors.red.shade400;
+  IconData _resIcon(String k) => {'gallium': Icons.science_outlined, 'germanium': Icons.memory_outlined, 'lithium': Icons.battery_charging_full_outlined, 'cobalt': Icons.bolt_outlined, 'graphite': Icons.layers_outlined}[k.toLowerCase()] ?? Icons.public_outlined;
+  String _fmtRes(String k) => {'gallium': 'Gallium', 'germanium': 'Germanium', 'lithium': 'Lithium', 'cobalt': 'Cobalt', 'graphite': 'Graphite'}[k.toLowerCase()] ?? (k.isEmpty ? '' : k[0].toUpperCase() + k.substring(1));
 
-  Widget _buildComparisonTable(
-      RerouteResult result, ColorScheme colorScheme) {
-    return Card(
-      color: colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Supplier Comparison',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: DataTable(
-                headingRowColor: WidgetStateProperty.all(
-                    colorScheme.surfaceContainerLow),
-                columns: const [
-                  DataColumn(label: Text('Rank')),
-                  DataColumn(label: Text('Supplier')),
-                  DataColumn(label: Text('Country')),
-                  DataColumn(
-                      label: Text('Capacity (t/yr)'), numeric: true),
-                  DataColumn(
-                      label: Text('Absorption %'), numeric: true),
-                  DataColumn(
-                      label: Text('Feasibility'), numeric: true),
-                  DataColumn(
-                      label: Text('Lead Time'), numeric: true),
-                ],
-                rows: result.alternatives.asMap().entries.map((entry) {
-                  final i = entry.key;
-                  final alt = entry.value;
-                  return DataRow(
-                    cells: [
-                      DataCell(
-                        Container(
-                          width: 28,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color:
-                                colorScheme.primary.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              '#${i + 1}',
-                              style: TextStyle(
-                                color: colorScheme.primary,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      DataCell(Text(alt.supplierName)),
-                      DataCell(Text(alt.country)),
-                      DataCell(
-                          Text(alt.capacityTonnes.toStringAsFixed(0))),
-                      DataCell(
-                          Text('${alt.absorptionPct.toStringAsFixed(1)}%')),
-                      DataCell(
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(alt.feasibilityScore
-                                .toStringAsFixed(0)),
-                            const SizedBox(width: 4),
-                            Icon(
-                              Icons.circle,
-                              size: 8,
-                              color: _getRiskColor(alt.feasibilityScore),
-                            ),
-                          ],
-                        ),
-                      ),
-                      DataCell(Text('${alt.leadTimeDays} days')),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Color _getRiskColor(double score) {
-    if (score >= 70) return Colors.green.shade400;
-    if (score >= 40) return Colors.orange.shade400;
-    return Colors.red.shade400;
+  String _formatTimeAgo(String isoDate) {
+    try {
+      final dt = DateTime.parse(isoDate);
+      final diff = DateTime.now().difference(dt);
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      return '${diff.inDays}d ago';
+    } catch (_) { return ''; }
   }
 }

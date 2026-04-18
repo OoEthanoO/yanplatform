@@ -106,6 +106,36 @@ type RerouteAlternative struct {
 	Longitude       float64 `json:"longitude" firestore:"longitude"`
 }
 
+// RiskScoreSnapshot represents a daily snapshot of a risk score for historical tracking.
+type RiskScoreSnapshot struct {
+	ID                   string    `json:"id" firestore:"id"`
+	Date                 string    `json:"date" firestore:"date"` // YYYY-MM-DD
+	Region               string    `json:"region" firestore:"region"`
+	Country              string    `json:"country" firestore:"country"`
+	Resource             string    `json:"resource" firestore:"resource"`
+	OverallScore         float64   `json:"overall_score" firestore:"overall_score"`
+	SupplyConcentration  float64   `json:"supply_concentration" firestore:"supply_concentration"`
+	GeopoliticalTension  float64   `json:"geopolitical_tension" firestore:"geopolitical_tension"`
+	TradePolicySignal    float64   `json:"trade_policy_signal" firestore:"trade_policy_signal"`
+	LogisticsRisk        float64   `json:"logistics_risk" firestore:"logistics_risk"`
+	RecordedAt           time.Time `json:"recorded_at" firestore:"recorded_at"`
+}
+
+// AlertRecord represents a system-generated alert when risk thresholds are breached.
+type AlertRecord struct {
+	ID                string    `json:"id" firestore:"id"`
+	Resource          string    `json:"resource" firestore:"resource"`
+	Region            string    `json:"region" firestore:"region"`
+	RiskScore         float64   `json:"risk_score" firestore:"risk_score"`
+	Threshold         float64   `json:"threshold" firestore:"threshold"`
+	AlternativesCount int       `json:"alternatives_count" firestore:"alternatives_count"`
+	RerouteResultID   string    `json:"reroute_result_id" firestore:"reroute_result_id"`
+	Message           string    `json:"message" firestore:"message"`
+	Severity          string    `json:"severity" firestore:"severity"` // "critical", "warning", "info"
+	CreatedAt         time.Time `json:"created_at" firestore:"created_at"`
+	Acknowledged      bool      `json:"acknowledged" firestore:"acknowledged"`
+}
+
 // RiskOverview is the API response for the dashboard overview.
 type RiskOverview struct {
 	ResourceRisks map[string]RiskScore `json:"resource_risks"`

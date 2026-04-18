@@ -222,10 +222,28 @@ func (e *Engine) RecalculateAll() {
 		return
 	}
 
+	today := time.Now().Format("2006-01-02")
+
 	for _, r := range resources {
 		if r.PrimaryRegion != "" {
 			score := e.ComputeRiskScore(r.PrimaryRegion, r.ID)
 			_ = e.Store.SaveRiskScore(score)
+
+			// Save daily snapshot for time-series history
+			snapshot := models.RiskScoreSnapshot{
+				ID:                  fmt.Sprintf("hist-%s-%s-%s", r.ID, r.PrimaryRegion, today),
+				Date:                today,
+				Region:              score.Region,
+				Country:             score.Country,
+				Resource:            score.Resource,
+				OverallScore:        score.OverallScore,
+				SupplyConcentration: score.SupplyConcentration,
+				GeopoliticalTension: score.GeopoliticalTension,
+				TradePolicySignal:   score.TradePolicySignal,
+				LogisticsRisk:       score.LogisticsRisk,
+				RecordedAt:          time.Now(),
+			}
+			_ = e.Store.SaveRiskHistory(snapshot)
 		}
 	}
 }

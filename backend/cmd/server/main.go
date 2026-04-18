@@ -14,12 +14,13 @@ import (
 	"yanplatform/backend/internal/pipeline"
 	"yanplatform/backend/internal/risk"
 	"yanplatform/backend/internal/store"
+	"yanplatform/backend/internal/webhook"
 )
 
 func main() {
 	log.Println("╔══════════════════════════════════════════════════════╗")
-	log.Println("║  YanPlatform — Gallium/Germanium                     ║")
-	log.Println("║  MVP v0.1.0                                         ║")
+	log.Println("║  YanPlatform — Supply Chain Intelligence             ║")
+	log.Println("║  v0.2.0 — Phase 4: Active Alerting & Telemetry      ║")
 	log.Println("╚══════════════════════════════════════════════════════╝")
 
 	// Load configuration
@@ -48,7 +49,7 @@ func main() {
 		}
 
 		dataStore.SeedInitialData()
-		log.Println("[Store] Seeded initial chokepoints, risk scores, and events")
+		log.Println("[Store] Seeded initial data (resources, chokepoints, risk scores, events, 30-day history, alerts)")
 	}
 
 	// Initialize risk engine
@@ -56,15 +57,23 @@ func main() {
 
 	// Recalculate risk scores with seed data
 	riskEngine.RecalculateAll()
-	log.Println("[Risk Engine] Initial risk scores computed")
+	log.Println("[Risk Engine] Initial risk scores computed + daily snapshots saved")
 
 	// Initialize pipeline clients
 	nimClient := pipeline.NewNIMClient(&cfg.NIM)
 	gdeltPipeline := pipeline.NewGDELTPipeline(dataStore, nimClient, &cfg.BigQuery)
 	comtradePipeline := pipeline.NewComtradePipeline(dataStore, &cfg.Comtrade)
 
+	// Initialize webhook client
+	webhookClient := webhook.NewClient(&cfg.Webhook)
+	if cfg.Webhook.Enabled {
+		log.Printf("[Webhook] Enabled — platform: %s", cfg.Webhook.Platform)
+	} else {
+		log.Println("[Webhook] Disabled (set WEBHOOK_URL to enable)")
+	}
+
 	// Start pipeline scheduler
-	scheduler := pipeline.NewScheduler(gdeltPipeline, comtradePipeline, riskEngine, &cfg.Pipeline)
+	scheduler := pipeline.NewScheduler(gdeltPipeline, comtradePipeline, riskEngine, webhookClient, &cfg.Pipeline)
 	scheduler.Start()
 	log.Println("[Scheduler] Pipeline scheduler started")
 
@@ -74,14 +83,20 @@ func main() {
 	addr := ":" + cfg.Server.Port
 	log.Printf("[Server] Starting on %s", addr)
 	log.Printf("[Server] API endpoints:")
-	log.Printf("  GET /api/health              — Health check")
-	log.Printf("  GET /api/risk/overview        — Risk dashboard overview")
-	log.Printf("  GET /api/risk/chokepoints     — Chokepoint map data")
-	log.Printf("  GET /api/risk/trends          — Risk score trends")
-	log.Printf("  GET /api/reroute/simulate     — Shadow reroute simulation")
-	log.Printf("  GET /api/events/recent        — Recent geopolitical events")
-	log.Printf("  GET /api/trade/flows           — Trade flow data")
-	log.Printf("  GET /api/suppliers             — Supplier directory")
+	log.Printf("  GET  /api/health                    — Health check")
+	log.Printf("  GET  /api/risk/overview              — Risk dashboard overview")
+	log.Printf("  GET  /api/risk/chokepoints            — Chokepoint map data")
+	log.Printf("  GET  /api/risk/trends                — Risk score trends")
+	log.Printf("  GET  /api/risk/history                — Time-series risk history")
+	log.Printf("  GET  /api/reroute/simulate            — On-demand reroute simulation")
+	log.Printf("  GET  /api/reroute/latest              — Latest autonomous reroute result")
+	log.Printf("  GET  /api/reroute/history             — Reroute simulation history")
+	log.Printf("  GET  /api/events/recent               — Recent geopolitical events")
+	log.Printf("  GET  /api/trade/flows                 — Trade flow data")
+	log.Printf("  GET  /api/suppliers                   — Supplier directory")
+	log.Printf("  GET  /api/resources                   — Tracked resources")
+	log.Printf("  GET  /api/alerts/recent               — Recent system alerts")
+	log.Printf("  POST /api/alerts/{id}/acknowledge     — Acknowledge an alert")
 
 	// Graceful shutdown
 	go func() {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -305,6 +306,41 @@ func (s *FirestoreStore) GetLatestRerouteResult(resource string) (*models.Rerout
 	return &result, nil
 }
 
+// GetRerouteResults returns recent reroute results, optionally filtered by resource.
+func (s *FirestoreStore) GetRerouteResults(resource string, limit int) ([]models.RerouteResult, error) {
+	ctx := context.Background()
+	var results []models.RerouteResult
+
+	q := s.client.Collection("rerouteResults").OrderBy("simulated_at", firestore.Desc)
+	if resource != "" {
+		q = s.client.Collection("rerouteResults").Where("resource", "==", resource).OrderBy("simulated_at", firestore.Desc)
+	}
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+
+	iter := q.Documents(ctx)
+	defer iter.Stop()
+
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("querying reroute results: %w", err)
+		}
+
+		var r models.RerouteResult
+		if err := doc.DataTo(&r); err != nil {
+			return nil, fmt.Errorf("parsing reroute result: %w", err)
+		}
+		results = append(results, r)
+	}
+
+	return results, nil
+}
+
 // --- Chokepoints ---
 
 // SaveChokepoint upserts a chokepoint.
@@ -457,8 +493,6 @@ func (s *FirestoreStore) GetCluster(id string) (*models.ResourceCluster, error) 
 	return &cluster, nil
 }
 
-// --- Seed Helpers ---
-
 // SeedInitialData relies on the MemoryStore seeding logic, but we could duplicate it here.
 // For now, if we want to seed Firestore, we just invoke it once manually or use a migration script.
 func (s *FirestoreStore) SeedInitialData() error {
@@ -492,5 +526,111 @@ func (s *FirestoreStore) SeedInitialData() error {
 	}
 	_ = s.SaveRiskScore(riskScore)
 	
+	return nil
+}
+
+// --- Risk History ---
+
+// SaveRiskHistory stores a daily risk score snapshot.
+func (s *FirestoreStore) SaveRiskHistory(snapshot models.RiskScoreSnapshot) error {
+	ctx := context.Background()
+	_, err := s.client.Collection("riskHistory").Doc(snapshot.ID).Set(ctx, snapshot)
+	if err != nil {
+		return fmt.Errorf("saving risk history: %w", err)
+	}
+	return nil
+}
+
+// GetRiskHistory returns risk score snapshots for a resource over N days.
+func (s *FirestoreStore) GetRiskHistory(resource string, days int) ([]models.RiskScoreSnapshot, error) {
+	ctx := context.Background()
+	var snapshots []models.RiskScoreSnapshot
+
+	cutoff := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+
+	q := s.client.Collection("riskHistory").Where("date", ">=", cutoff)
+	if resource != "" {
+		q = s.client.Collection("riskHistory").Where("resource", "==", resource).Where("date", ">=", cutoff)
+	}
+
+	iter := q.Documents(ctx)
+	defer iter.Stop()
+
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("querying risk history: %w", err)
+		}
+
+		var snap models.RiskScoreSnapshot
+		if err := doc.DataTo(&snap); err != nil {
+			return nil, fmt.Errorf("parsing risk history: %w", err)
+		}
+		snapshots = append(snapshots, snap)
+	}
+
+	sort.Slice(snapshots, func(i, j int) bool {
+		return snapshots[i].Date < snapshots[j].Date
+	})
+
+	return snapshots, nil
+}
+
+// --- Alerts ---
+
+// SaveAlert stores an alert record.
+func (s *FirestoreStore) SaveAlert(alert models.AlertRecord) error {
+	ctx := context.Background()
+	_, err := s.client.Collection("alerts").Doc(alert.ID).Set(ctx, alert)
+	if err != nil {
+		return fmt.Errorf("saving alert: %w", err)
+	}
+	return nil
+}
+
+// GetRecentAlerts returns the most recent alerts.
+func (s *FirestoreStore) GetRecentAlerts(limit int) ([]models.AlertRecord, error) {
+	ctx := context.Background()
+	var alerts []models.AlertRecord
+
+	q := s.client.Collection("alerts").OrderBy("created_at", firestore.Desc)
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+
+	iter := q.Documents(ctx)
+	defer iter.Stop()
+
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("querying alerts: %w", err)
+		}
+
+		var alert models.AlertRecord
+		if err := doc.DataTo(&alert); err != nil {
+			return nil, fmt.Errorf("parsing alert: %w", err)
+		}
+		alerts = append(alerts, alert)
+	}
+
+	return alerts, nil
+}
+
+// AcknowledgeAlert marks an alert as acknowledged.
+func (s *FirestoreStore) AcknowledgeAlert(id string) error {
+	ctx := context.Background()
+	_, err := s.client.Collection("alerts").Doc(id).Update(ctx, []firestore.Update{
+		{Path: "acknowledged", Value: true},
+	})
+	if err != nil {
+		return fmt.Errorf("acknowledging alert: %w", err)
+	}
 	return nil
 }

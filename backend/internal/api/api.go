@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"yanplatform/backend/internal/config"
@@ -43,11 +45,16 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/risk/overview", s.handleRiskOverview)
 	s.mux.HandleFunc("GET /api/risk/chokepoints", s.handleChokepoints)
 	s.mux.HandleFunc("GET /api/risk/trends", s.handleRiskTrends)
+	s.mux.HandleFunc("GET /api/risk/history", s.handleRiskHistory)
 	s.mux.HandleFunc("GET /api/reroute/simulate", s.handleRerouteSimulate)
+	s.mux.HandleFunc("GET /api/reroute/latest", s.handleRerouteLatest)
+	s.mux.HandleFunc("GET /api/reroute/history", s.handleRerouteHistory)
 	s.mux.HandleFunc("GET /api/events/recent", s.handleRecentEvents)
 	s.mux.HandleFunc("GET /api/trade/flows", s.handleTradeFlows)
 	s.mux.HandleFunc("GET /api/suppliers", s.handleSuppliers)
 	s.mux.HandleFunc("GET /api/resources", s.handleResources)
+	s.mux.HandleFunc("GET /api/alerts/recent", s.handleAlertsRecent)
+	s.mux.HandleFunc("POST /api/alerts/{id}/acknowledge", s.handleAlertAcknowledge)
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 }
 
@@ -57,7 +64,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "ok",
 		"service": "yanplatform-supply-chain-risk",
-		"version": "0.1.0",
+		"version": "0.2.0",
 	})
 }
 
@@ -100,6 +107,24 @@ func (s *Server) handleRiskTrends(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, http.StatusOK, allScores)
 }
 
+func (s *Server) handleRiskHistory(w http.ResponseWriter, r *http.Request) {
+	resource := r.URL.Query().Get("resource")
+	daysStr := r.URL.Query().Get("days")
+	days := 30
+	if daysStr != "" {
+		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+			days = d
+		}
+	}
+
+	history, err := s.store.GetRiskHistory(resource, days)
+	if err != nil {
+		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, history)
+}
+
 func (s *Server) handleRerouteSimulate(w http.ResponseWriter, r *http.Request) {
 	resource := r.URL.Query().Get("resource")
 	if resource == "" {
@@ -116,6 +141,45 @@ func (s *Server) handleRerouteSimulate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleRerouteLatest(w http.ResponseWriter, r *http.Request) {
+	resource := r.URL.Query().Get("resource")
+	if resource == "" {
+		resource = "gallium"
+	}
+
+	result, err := s.store.GetLatestRerouteResult(resource)
+	if err != nil {
+		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if result == nil {
+		s.writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "no_results",
+			"message": "No autonomous reroute simulations found for this resource",
+		})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleRerouteHistory(w http.ResponseWriter, r *http.Request) {
+	resource := r.URL.Query().Get("resource")
+	limitStr := r.URL.Query().Get("limit")
+	limit := 10
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	results, err := s.store.GetRerouteResults(resource, limit)
+	if err != nil {
+		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, results)
 }
 
 func (s *Server) handleRecentEvents(w http.ResponseWriter, r *http.Request) {
@@ -142,6 +206,42 @@ func (s *Server) handleResources(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, resources)
+}
+
+func (s *Server) handleAlertsRecent(w http.ResponseWriter, r *http.Request) {
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	alerts, err := s.store.GetRecentAlerts(limit)
+	if err != nil {
+		s.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	s.writeJSON(w, http.StatusOK, alerts)
+}
+
+func (s *Server) handleAlertAcknowledge(w http.ResponseWriter, r *http.Request) {
+	// Extract ID from path: /api/alerts/{id}/acknowledge
+	path := r.URL.Path
+	parts := strings.Split(path, "/")
+	// Expected: ["", "api", "alerts", "{id}", "acknowledge"]
+	if len(parts) < 5 {
+		s.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid path"})
+		return
+	}
+	alertID := parts[3]
+
+	if err := s.store.AcknowledgeAlert(alertID); err != nil {
+		s.writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.writeJSON(w, http.StatusOK, map[string]string{"status": "acknowledged", "id": alertID})
 }
 
 // --- Middleware ---

@@ -17,6 +17,7 @@ import (
 	"yanplatform/backend/internal/models"
 	"yanplatform/backend/internal/risk"
 	"yanplatform/backend/internal/store"
+	"yanplatform/backend/internal/webhook"
 )
 
 // NIMClient communicates with the NVIDIA NIM API for sentiment analysis and risk classification.
@@ -396,21 +397,23 @@ func (p *ComtradePipeline) fetchTradeData(hsCode, resource string) {
 
 // Scheduler manages periodic pipeline execution.
 type Scheduler struct {
-	gdelt       *GDELTPipeline
-	comtrade    *ComtradePipeline
-	riskEngine  *risk.Engine
-	config      *config.PipelineConfig
-	stopCh      chan struct{}
+	gdelt          *GDELTPipeline
+	comtrade       *ComtradePipeline
+	riskEngine     *risk.Engine
+	webhookClient  *webhook.Client
+	config         *config.PipelineConfig
+	stopCh         chan struct{}
 }
 
 // NewScheduler creates a pipeline scheduler.
-func NewScheduler(gdelt *GDELTPipeline, comtrade *ComtradePipeline, engine *risk.Engine, cfg *config.PipelineConfig) *Scheduler {
+func NewScheduler(gdelt *GDELTPipeline, comtrade *ComtradePipeline, engine *risk.Engine, webhookCl *webhook.Client, cfg *config.PipelineConfig) *Scheduler {
 	return &Scheduler{
-		gdelt:      gdelt,
-		comtrade:   comtrade,
-		riskEngine: engine,
-		config:     cfg,
-		stopCh:     make(chan struct{}),
+		gdelt:         gdelt,
+		comtrade:      comtrade,
+		riskEngine:    engine,
+		webhookClient: webhookCl,
+		config:        cfg,
+		stopCh:        make(chan struct{}),
 	}
 }
 
@@ -473,7 +476,55 @@ func (s *Scheduler) checkRiskTriggers() {
 					res.Name, rs.OverallScore, threshold, rs.Country)
 				
 				log.Printf("[Scheduler] Autonomously triggering Shadow Reroute simulation for %s...", res.ID)
-				_ = s.riskEngine.SimulateReroute(res.ID)
+				result := s.riskEngine.SimulateReroute(res.ID)
+
+				// Create and save alert record
+				altCount := 0
+				rerouteID := ""
+				if result != nil {
+					altCount = len(result.Alternatives)
+					rerouteID = result.ID
+				}
+
+				severity := "warning"
+				if rs.OverallScore >= 80 {
+					severity = "critical"
+				}
+
+				alert := models.AlertRecord{
+					ID:                fmt.Sprintf("alert-%s-%d", res.ID, time.Now().Unix()),
+					Resource:          res.ID,
+					Region:            rs.Country,
+					RiskScore:         rs.OverallScore,
+					Threshold:         threshold,
+					AlternativesCount: altCount,
+					RerouteResultID:   rerouteID,
+					Message: fmt.Sprintf("%s: %s risk in %s has reached %.1f. Autonomous reroute simulation complete. %d alternative suppliers identified.",
+						fmt.Sprintf("%s", map[bool]string{true: "CRITICAL", false: "WARNING"}[severity == "critical"]),
+						res.Name, rs.Country, rs.OverallScore, altCount),
+					Severity:    severity,
+					CreatedAt:   time.Now(),
+					Acknowledged: false,
+				}
+				_ = s.riskEngine.Store.SaveAlert(alert)
+				log.Printf("[Scheduler] Alert saved: %s", alert.ID)
+
+				// Send webhook notification
+				if s.webhookClient != nil {
+					payload := webhook.AlertPayload{
+						Resource:         res.Name,
+						Region:           rs.Country,
+						RiskScore:        rs.OverallScore,
+						Threshold:        threshold,
+						AlternativeCount: altCount,
+						RerouteResultID:  rerouteID,
+						Timestamp:        time.Now(),
+					}
+					if err := s.webhookClient.SendAlert(payload); err != nil {
+						log.Printf("[Webhook] Error sending alert: %v", err)
+					}
+				}
+
 				break
 			}
 		}

@@ -94,9 +94,9 @@ class _AppShellState extends State<AppShell> {
                 label: Text('Dashboard'),
               ),
               NavigationRailDestination(
-                icon: Icon(Icons.alt_route_outlined),
-                selectedIcon: Icon(Icons.alt_route),
-                label: Text('Reroute'),
+                icon: Icon(Icons.notifications_outlined),
+                selectedIcon: Icon(Icons.notifications_active),
+                label: Text('Alerts'),
               ),
             ],
           ),

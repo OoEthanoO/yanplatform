@@ -44,7 +44,21 @@ class ApiService {
     return list.map((e) => RiskScore.fromJson(e)).toList();
   }
 
-  /// Run a shadow reroute simulation.
+  /// Fetch time-series risk history for a resource.
+  Future<List<RiskScoreSnapshot>> getRiskHistory({
+    required String resource,
+    int days = 30,
+  }) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/risk/history?resource=$resource&days=$days'),
+    );
+    _checkResponse(response);
+    final list = json.decode(response.body) as List<dynamic>?;
+    if (list == null) return [];
+    return list.map((e) => RiskScoreSnapshot.fromJson(e)).toList();
+  }
+
+  /// Run a shadow reroute simulation (on-demand).
   Future<RerouteResult?> simulateReroute({String resource = 'gallium'}) async {
     final response = await _client
         .get(Uri.parse('$baseUrl/api/reroute/simulate?resource=$resource'));
@@ -52,6 +66,55 @@ class ApiService {
     final data = json.decode(response.body);
     if (data['status'] == 'no_disruption') return null;
     return RerouteResult.fromJson(data);
+  }
+
+  /// Fetch the latest autonomous reroute result for a resource.
+  Future<RerouteResult?> getLatestRerouteResult({
+    required String resource,
+  }) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/reroute/latest?resource=$resource'),
+    );
+    _checkResponse(response);
+    final data = json.decode(response.body);
+    if (data['status'] == 'no_results') return null;
+    return RerouteResult.fromJson(data);
+  }
+
+  /// Fetch reroute simulation history.
+  Future<List<RerouteResult>> getRerouteHistory({
+    String? resource,
+    int limit = 10,
+  }) async {
+    final query = resource != null
+        ? 'resource=$resource&limit=$limit'
+        : 'limit=$limit';
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/reroute/history?$query'),
+    );
+    _checkResponse(response);
+    final list = json.decode(response.body) as List<dynamic>?;
+    if (list == null) return [];
+    return list.map((e) => RerouteResult.fromJson(e)).toList();
+  }
+
+  /// Fetch recent system alerts.
+  Future<List<AlertRecord>> getRecentAlerts({int limit = 20}) async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/alerts/recent?limit=$limit'),
+    );
+    _checkResponse(response);
+    final list = json.decode(response.body) as List<dynamic>?;
+    if (list == null) return [];
+    return list.map((e) => AlertRecord.fromJson(e)).toList();
+  }
+
+  /// Acknowledge an alert.
+  Future<void> acknowledgeAlert(String id) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/api/alerts/$id/acknowledge'),
+    );
+    _checkResponse(response);
   }
 
   /// Fetch recent geopolitical events.

@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"sort"
 	"sync"
@@ -25,6 +27,7 @@ type Store interface {
 	GetTradeFlows(resource string) ([]models.TradeFlow, error)
 	SaveRerouteResult(result models.RerouteResult) error
 	GetLatestRerouteResult(resource string) (*models.RerouteResult, error)
+	GetRerouteResults(resource string, limit int) ([]models.RerouteResult, error)
 	SaveChokepoint(cp models.Chokepoint) error
 	GetChokepoints(resource string) ([]models.Chokepoint, error)
 	SaveResource(res models.Resource) error
@@ -33,6 +36,11 @@ type Store interface {
 	SaveCluster(cluster models.ResourceCluster) error
 	GetClusters() ([]models.ResourceCluster, error)
 	GetCluster(id string) (*models.ResourceCluster, error)
+	SaveRiskHistory(snapshot models.RiskScoreSnapshot) error
+	GetRiskHistory(resource string, days int) ([]models.RiskScoreSnapshot, error)
+	SaveAlert(alert models.AlertRecord) error
+	GetRecentAlerts(limit int) ([]models.AlertRecord, error)
+	AcknowledgeAlert(id string) error
 	SeedInitialData() error
 }
 
@@ -47,6 +55,8 @@ type MemoryStore struct {
 	chokepoints    []models.Chokepoint
 	resources      []models.Resource
 	clusters       []models.ResourceCluster
+	riskHistory    []models.RiskScoreSnapshot
+	alerts         []models.AlertRecord
 }
 
 // NewMemoryStore creates a new in-memory store.
@@ -258,6 +268,28 @@ func (s *MemoryStore) GetLatestRerouteResult(resource string) (*models.RerouteRe
 	return latest, nil
 }
 
+// GetRerouteResults returns recent reroute results, optionally filtered by resource.
+func (s *MemoryStore) GetRerouteResults(resource string, limit int) ([]models.RerouteResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var filtered []models.RerouteResult
+	for _, r := range s.rerouteResults {
+		if resource == "" || r.Resource == resource {
+			filtered = append(filtered, r)
+		}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].SimulatedAt.After(filtered[j].SimulatedAt)
+	})
+
+	if limit > 0 && limit < len(filtered) {
+		filtered = filtered[:limit]
+	}
+	return filtered, nil
+}
+
 // --- Chokepoints ---
 
 // SaveChokepoint upserts a chokepoint.
@@ -373,6 +405,93 @@ func (s *MemoryStore) GetCluster(id string) (*models.ResourceCluster, error) {
 		}
 	}
 	return nil, nil
+}
+
+// --- Risk History ---
+
+// SaveRiskHistory stores a daily risk score snapshot.
+func (s *MemoryStore) SaveRiskHistory(snapshot models.RiskScoreSnapshot) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Deduplicate by ID
+	for i, existing := range s.riskHistory {
+		if existing.ID == snapshot.ID {
+			s.riskHistory[i] = snapshot
+			return nil
+		}
+	}
+	s.riskHistory = append(s.riskHistory, snapshot)
+	return nil
+}
+
+// GetRiskHistory returns risk score snapshots for a resource over N days.
+func (s *MemoryStore) GetRiskHistory(resource string, days int) ([]models.RiskScoreSnapshot, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	cutoff := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+
+	var filtered []models.RiskScoreSnapshot
+	for _, snap := range s.riskHistory {
+		if (resource == "" || snap.Resource == resource) && snap.Date >= cutoff {
+			filtered = append(filtered, snap)
+		}
+	}
+
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].Date < filtered[j].Date
+	})
+
+	return filtered, nil
+}
+
+// --- Alerts ---
+
+// SaveAlert stores an alert record.
+func (s *MemoryStore) SaveAlert(alert models.AlertRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, existing := range s.alerts {
+		if existing.ID == alert.ID {
+			s.alerts[i] = alert
+			return nil
+		}
+	}
+	s.alerts = append(s.alerts, alert)
+	return nil
+}
+
+// GetRecentAlerts returns the most recent alerts.
+func (s *MemoryStore) GetRecentAlerts(limit int) ([]models.AlertRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	sorted := make([]models.AlertRecord, len(s.alerts))
+	copy(sorted, s.alerts)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].CreatedAt.After(sorted[j].CreatedAt)
+	})
+
+	if limit > 0 && limit < len(sorted) {
+		return sorted[:limit], nil
+	}
+	return sorted, nil
+}
+
+// AcknowledgeAlert marks an alert as acknowledged.
+func (s *MemoryStore) AcknowledgeAlert(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, alert := range s.alerts {
+		if alert.ID == id {
+			s.alerts[i].Acknowledged = true
+			return nil
+		}
+	}
+	return fmt.Errorf("alert %s not found", id)
 }
 
 // --- Seed Helpers ---
@@ -561,6 +680,104 @@ func (s *MemoryStore) SeedInitialData() error {
 
 	for _, evt := range events {
 		s.SaveEvent(evt)
+	}
+
+	// Generate 30 days of historical risk data with realistic drift
+	baseScores := map[string]map[string]float64{
+		"gallium": {
+			"overall": 82.0, "concentration": 95.0,
+			"tension": 75.0, "policy": 80.0, "logistics": 50.0,
+		},
+		"germanium": {
+			"overall": 78.0, "concentration": 85.0,
+			"tension": 75.0, "policy": 80.0, "logistics": 45.0,
+		},
+		"lithium": {
+			"overall": 25.0, "concentration": 50.0,
+			"tension": 15.0, "policy": 10.0, "logistics": 25.0,
+		},
+		"cobalt": {
+			"overall": 88.0, "concentration": 70.0,
+			"tension": 90.0, "policy": 40.0, "logistics": 85.0,
+		},
+		"graphite": {
+			"overall": 72.0, "concentration": 65.0,
+			"tension": 70.0, "policy": 75.0, "logistics": 55.0,
+		},
+	}
+
+	regionMap := map[string]string{
+		"gallium": "China", "germanium": "China",
+		"lithium": "Australia", "cobalt": "DR Congo",
+		"graphite": "China",
+	}
+
+	rng := rand.New(rand.NewSource(42)) // deterministic for consistent demos
+
+	for resource, base := range baseScores {
+		region := regionMap[resource]
+		for day := 30; day >= 0; day-- {
+			date := now.AddDate(0, 0, -day)
+			dateStr := date.Format("2006-01-02")
+
+			// Create a drift pattern: scores gradually increase over time with some noise
+			drift := float64(30-day) * 0.3 // slight upward trend
+			noise := (rng.Float64() - 0.5) * 8  // +/- 4 points of noise
+
+			clampVal := func(v, mn, mx float64) float64 {
+				return math.Max(mn, math.Min(mx, v))
+			}
+
+			snap := models.RiskScoreSnapshot{
+				ID:                  fmt.Sprintf("hist-%s-%s-%s", resource, region, dateStr),
+				Date:                dateStr,
+				Region:              region,
+				Country:             region,
+				Resource:            resource,
+				OverallScore:        clampVal(base["overall"]+drift+noise, 0, 100),
+				SupplyConcentration: clampVal(base["concentration"]+(rng.Float64()-0.5)*4, 0, 100),
+				GeopoliticalTension: clampVal(base["tension"]+drift*0.8+noise*0.5, 0, 100),
+				TradePolicySignal:   clampVal(base["policy"]+(rng.Float64()-0.5)*6, 0, 100),
+				LogisticsRisk:       clampVal(base["logistics"]+(rng.Float64()-0.5)*3, 0, 100),
+				RecordedAt:          date,
+			}
+			s.SaveRiskHistory(snap)
+		}
+	}
+
+	// Seed sample alerts (autonomous triggers from the past)
+	sampleAlerts := []models.AlertRecord{
+		{
+			ID: "alert-001", Resource: "cobalt", Region: "DR Congo",
+			RiskScore: 88.0, Threshold: 70.0, AlternativesCount: 3,
+			RerouteResultID: "reroute-cobalt-sample",
+			Message:  "CRITICAL: Cobalt risk in DR Congo has reached 88.0. Autonomous reroute simulation complete. 3 alternative suppliers identified.",
+			Severity: "critical", CreatedAt: now.Add(-2 * time.Hour), Acknowledged: false,
+		},
+		{
+			ID: "alert-002", Resource: "gallium", Region: "China",
+			RiskScore: 82.0, Threshold: 70.0, AlternativesCount: 3,
+			RerouteResultID: "reroute-gallium-sample",
+			Message:  "CRITICAL: Gallium risk in China has reached 82.0. Autonomous reroute simulation complete. 3 alternative suppliers identified.",
+			Severity: "critical", CreatedAt: now.Add(-6 * time.Hour), Acknowledged: false,
+		},
+		{
+			ID: "alert-003", Resource: "germanium", Region: "China",
+			RiskScore: 78.0, Threshold: 70.0, AlternativesCount: 3,
+			RerouteResultID: "reroute-germanium-sample",
+			Message:  "WARNING: Germanium risk in China has reached 78.0. Autonomous reroute simulation complete. 3 alternative suppliers identified.",
+			Severity: "warning", CreatedAt: now.Add(-24 * time.Hour), Acknowledged: true,
+		},
+		{
+			ID: "alert-004", Resource: "graphite", Region: "China",
+			RiskScore: 72.0, Threshold: 70.0, AlternativesCount: 2,
+			RerouteResultID: "reroute-graphite-sample",
+			Message:  "WARNING: Graphite risk in China has reached 72.0. Autonomous reroute simulation complete. 2 alternative suppliers identified.",
+			Severity: "warning", CreatedAt: now.Add(-48 * time.Hour), Acknowledged: true,
+		},
+	}
+	for _, a := range sampleAlerts {
+		s.SaveAlert(a)
 	}
 
 	return nil

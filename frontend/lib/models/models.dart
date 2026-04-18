@@ -339,3 +339,92 @@ class TradeFlow {
     );
   }
 }
+
+class RiskScoreSnapshot {
+  final String id;
+  final String date;
+  final String region;
+  final String country;
+  final String resource;
+  final double overallScore;
+  final double supplyConcentration;
+  final double geopoliticalTension;
+  final double tradePolicySignal;
+  final double logisticsRisk;
+  final String recordedAt;
+
+  RiskScoreSnapshot({
+    required this.id,
+    required this.date,
+    required this.region,
+    required this.country,
+    required this.resource,
+    required this.overallScore,
+    required this.supplyConcentration,
+    required this.geopoliticalTension,
+    required this.tradePolicySignal,
+    required this.logisticsRisk,
+    required this.recordedAt,
+  });
+
+  factory RiskScoreSnapshot.fromJson(Map<String, dynamic> json) {
+    return RiskScoreSnapshot(
+      id: json['id'] ?? '',
+      date: json['date'] ?? '',
+      region: json['region'] ?? '',
+      country: json['country'] ?? '',
+      resource: json['resource'] ?? '',
+      overallScore: (json['overall_score'] ?? 0).toDouble(),
+      supplyConcentration: (json['supply_concentration'] ?? 0).toDouble(),
+      geopoliticalTension: (json['geopolitical_tension'] ?? 0).toDouble(),
+      tradePolicySignal: (json['trade_policy_signal'] ?? 0).toDouble(),
+      logisticsRisk: (json['logistics_risk'] ?? 0).toDouble(),
+      recordedAt: json['recorded_at'] ?? '',
+    );
+  }
+}
+
+class AlertRecord {
+  final String id;
+  final String resource;
+  final String region;
+  final double riskScore;
+  final double threshold;
+  final int alternativesCount;
+  final String rerouteResultId;
+  final String message;
+  final String severity;
+  final String createdAt;
+  final bool acknowledged;
+
+  AlertRecord({
+    required this.id,
+    required this.resource,
+    required this.region,
+    required this.riskScore,
+    required this.threshold,
+    required this.alternativesCount,
+    required this.rerouteResultId,
+    required this.message,
+    required this.severity,
+    required this.createdAt,
+    required this.acknowledged,
+  });
+
+  factory AlertRecord.fromJson(Map<String, dynamic> json) {
+    return AlertRecord(
+      id: json['id'] ?? '',
+      resource: json['resource'] ?? '',
+      region: json['region'] ?? '',
+      riskScore: (json['risk_score'] ?? 0).toDouble(),
+      threshold: (json['threshold'] ?? 0).toDouble(),
+      alternativesCount: json['alternatives_count'] ?? 0,
+      rerouteResultId: json['reroute_result_id'] ?? '',
+      message: json['message'] ?? '',
+      severity: json['severity'] ?? 'info',
+      createdAt: json['created_at'] ?? '',
+      acknowledged: json['acknowledged'] ?? false,
+    );
+  }
+}
+

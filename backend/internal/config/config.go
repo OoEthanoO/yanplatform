@@ -15,6 +15,7 @@ type Config struct {
 	Comtrade  ComtradeConfig  `json:"comtrade"`
 	Pipeline  PipelineConfig  `json:"pipeline"`
 	Risk      RiskConfig      `json:"risk"`
+	Webhook   WebhookConfig   `json:"webhook"`
 }
 
 // ServerConfig holds HTTP server settings.
@@ -69,6 +70,13 @@ type RiskConfig struct {
 	WeightLogisticsRisk       float64 `json:"weight_logistics_risk"`
 }
 
+// WebhookConfig holds webhook notification settings.
+type WebhookConfig struct {
+	Enabled  bool   `json:"enabled"`
+	URL      string `json:"url"`
+	Platform string `json:"platform"` // "slack", "discord", "teams"
+}
+
 // Load reads configuration from a JSON file, with environment variable overrides.
 func Load(path string) (*Config, error) {
 	cfg := DefaultConfig()
@@ -104,6 +112,16 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("COMTRADE_API_KEY"); v != "" {
 		cfg.Comtrade.APIKey = v
+	}
+	if v := os.Getenv("WEBHOOK_URL"); v != "" {
+		cfg.Webhook.URL = v
+		cfg.Webhook.Enabled = true
+	}
+	if v := os.Getenv("WEBHOOK_PLATFORM"); v != "" {
+		cfg.Webhook.Platform = v
+	}
+	if v := os.Getenv("WEBHOOK_ENABLED"); v == "false" || v == "0" {
+		cfg.Webhook.Enabled = false
 	}
 
 	return cfg, nil
@@ -142,6 +160,10 @@ func DefaultConfig() *Config {
 			WeightGeopoliticalTension: 0.30,
 			WeightTradePolicySignal:   0.20,
 			WeightLogisticsRisk:       0.10,
+		},
+		Webhook: WebhookConfig{
+			Enabled:  false,
+			Platform: "discord",
 		},
 	}
 }

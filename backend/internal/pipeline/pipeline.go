@@ -34,7 +34,7 @@ func NewNIMClient(cfg *config.NIMConfig) *NIMClient {
 		apiKey:  cfg.APIKey,
 		baseURL: cfg.BaseURL,
 		model:   cfg.Model,
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
@@ -227,18 +227,19 @@ func (p *GDELTPipeline) ingestFromBigQuery(ctx context.Context) {
 
 	// Dynamic SQL query against GDELT 2.0 public tables
 	// Limiting to last 48 hours for daily run
+	// Using COALESCE to handle NULL fields (not every event has two actors)
 	queryStr := fmt.Sprintf(`
 		SELECT 
 			GLOBALEVENTID as id,
 			TIMESTAMP(PARSE_DATE('%%Y%%m%%d', CAST(SQLDATE AS STRING))) as event_date,
-			Actor1Name as actor1,
-			Actor1CountryCode as actor1_country,
-			Actor2Name as actor2,
-			Actor2CountryCode as actor2_country,
-			EventCode as event_type,
-			SOURCEURL as url,
-			AvgTone as tone,
-			GoldsteinScale as goldstein
+			COALESCE(Actor1Name, '') as actor1,
+			COALESCE(Actor1CountryCode, '') as actor1_country,
+			COALESCE(Actor2Name, '') as actor2,
+			COALESCE(Actor2CountryCode, '') as actor2_country,
+			COALESCE(EventCode, '') as event_type,
+			COALESCE(SOURCEURL, '') as url,
+			COALESCE(AvgTone, 0) as tone,
+			COALESCE(GoldsteinScale, 0) as goldstein
 		FROM `+"`%s.events`"+`
 		WHERE (%s)
 		AND SQLDATE >= %s
@@ -274,6 +275,16 @@ func (p *GDELTPipeline) ingestFromBigQuery(ctx context.Context) {
 			break
 		}
 
+		// Build a human-readable description from the event data
+		desc := fmt.Sprintf("%s", r.Actor1Name)
+		if r.Actor2Name != "" {
+			desc += fmt.Sprintf(" interacting with %s", r.Actor2Name)
+		}
+		if r.Actor1Country != "" {
+			desc += fmt.Sprintf(" (%s)", r.Actor1Country)
+		}
+		desc += fmt.Sprintf(" — event type %s", r.EventType)
+
 		// Map to model and save
 		evt := models.GDELTEvent{
 			ID:             fmt.Sprintf("%d", r.ID),
@@ -283,7 +294,7 @@ func (p *GDELTPipeline) ingestFromBigQuery(ctx context.Context) {
 			Actor2Name:     r.Actor2Name,
 			Actor2Country:  r.Actor2Country,
 			EventType:      r.EventType,
-			Description:    fmt.Sprintf("Event in %s with %s involvement", r.SourceURL, r.Actor1Name),
+			Description:    desc,
 			AvgTone:        r.AvgTone,
 			GoldsteinScale: r.GoldsteinScale,
 			SourceURL:      r.SourceURL,

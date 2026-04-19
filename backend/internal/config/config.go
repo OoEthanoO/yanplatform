@@ -143,7 +143,7 @@ func DefaultConfig() *Config {
 		},
 		NIM: NIMConfig{
 			BaseURL: "https://integrate.api.nvidia.com/v1",
-			Model:   "meta/llama-3.1-8b-instruct",
+			Model:   "nvidia/nemotron-3-super-120b-a12b",
 		},
 		Comtrade: ComtradeConfig{
 			BaseURL: "https://comtradeapi.un.org/data/v1/get",

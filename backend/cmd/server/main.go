@@ -2,11 +2,13 @@
 package main
 
 import (
+	"bufio"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"yanplatform/backend/internal/api"
@@ -17,7 +19,38 @@ import (
 	"yanplatform/backend/internal/webhook"
 )
 
+// loadEnv reads a .env file and sets environment variables.
+// Skips blank lines and comments (#). Does not override existing vars.
+func loadEnv(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return // .env is optional
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val = strings.TrimSpace(val)
+		// Don't override vars that are already set
+		if os.Getenv(key) == "" {
+			os.Setenv(key, val)
+		}
+	}
+}
+
 func main() {
+	// Auto-load .env file if present
+	loadEnv(".env")
+
 	log.Println("╔══════════════════════════════════════════════════════╗")
 	log.Println("║  YanPlatform — Supply Chain Intelligence             ║")
 	log.Println("║  v0.2.0 — Phase 4: Active Alerting & Telemetry      ║")
